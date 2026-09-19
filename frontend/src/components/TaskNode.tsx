@@ -4,6 +4,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { motion } from 'framer-motion';
 import { DENIED_STYLE, STATE_STYLE, isDenied } from '@/lib/theme';
 import { useJenga } from '@/store/useJenga';
+import { displayId } from '@/lib/format';
 import type { Task } from '@/lib/types';
 
 export interface TaskNodeData extends Record<string, unknown> {
@@ -62,7 +63,7 @@ function TaskNodeImpl({ data }: NodeProps) {
             // Critical is carried by the red border, so it needs no label here.
             <>
               <div className="flex items-baseline justify-between gap-1">
-                <span className="font-mono text-[11px] opacity-70">{task.id}</span>
+                <span className="whitespace-nowrap font-mono text-[11px] opacity-70">{displayId(task.id)}</span>
                 <span className="font-mono text-[11px]">{task.duration_days}d</span>
               </div>
               <div className="truncate text-[12px] font-medium leading-tight">{task.name}</div>
@@ -71,7 +72,7 @@ function TaskNodeImpl({ data }: NodeProps) {
           ) : (
             <>
               <div className="flex items-baseline justify-between gap-1">
-                <span className="font-mono text-[10px] opacity-70">{task.id}</span>
+                <span className="whitespace-nowrap font-mono text-[10px] opacity-70">{displayId(task.id)}</span>
                 {task.is_critical ? (
                   <span className="font-mono text-[9px] text-red-600">CRIT</span>
                 ) : (

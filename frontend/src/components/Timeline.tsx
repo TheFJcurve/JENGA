@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { AlertTriangle } from 'lucide-react';
 import { STATE_STYLE } from '@/lib/theme';
+import { displayId } from '@/lib/format';
 import { useJenga, type StageEvent } from '@/store/useJenga';
 import type { Task } from '@/lib/types';
 
@@ -239,7 +240,7 @@ function Row({
         className="flex shrink-0 items-center gap-1.5 overflow-hidden px-2"
         style={{ width: LABEL_W }}
       >
-        <span className="shrink-0 font-mono text-[10px] text-slate-400">{t.id}</span>
+        <span className="shrink-0 font-mono text-[10px] text-slate-400">{displayId(t.id)}</span>
         <span className="truncate text-[10px] text-slate-700">{t.name}</span>
         <span
           className={`ml-auto shrink-0 font-mono text-[9px] ${

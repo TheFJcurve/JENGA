@@ -19,6 +19,7 @@ import type {
   Zone,
 } from '@/lib/types';
 import type { FocusOrigin } from '@/lib/focus';
+import { displayId } from '@/lib/format';
 
 /** Milliseconds of delay per topological rank during the cascade. */
 export const CASCADE_STEP_MS = 120;
@@ -553,7 +554,7 @@ export const useJenga = create<JengaState>((set, get) => ({
     const ev = get().logActivity({
       source: 'agent',
       status: 'running',
-      title: `Verifying ${taskId} — 5-node pipeline`,
+      title: `Verifying ${displayId(taskId)} — 5-node pipeline`,
       detail: 'GPTZero authorship → vision → historical memory → telemetry → arbiter',
     });
     try {
@@ -561,12 +562,12 @@ export const useJenga = create<JengaState>((set, get) => ({
     } catch (err) {
       set({ busy: false });
       const message = err instanceof Error ? err.message : 'Submission failed.';
-      get().updateActivity(ev, { status: 'error', title: `Update on ${taskId} refused`, detail: message });
+      get().updateActivity(ev, { status: 'error', title: `Update on ${displayId(taskId)} refused`, detail: message });
       return message;
     }
     get().updateActivity(ev, {
       status: 'ok',
-      title: `Update on ${taskId} sent for owner review`,
+      title: `Update on ${displayId(taskId)} sent for owner review`,
       detail: 'The AI recommendation is attached for the owner to weigh.',
     });
     set({ busy: false, offline: api.isOffline() });
@@ -605,7 +606,7 @@ export const useJenga = create<JengaState>((set, get) => ({
     const ev = get().logActivity({
       source: 'agent',
       status: 'running',
-      title: `Propagating +${delayDays}d slip from ${taskId}`,
+      title: `Propagating +${delayDays}d slip from ${displayId(taskId)}`,
       detail: 'Recomputing CPM float and cascading downstream…',
     });
     const res = await api.dispute(taskId, delayDays, reason, get().tasks);
@@ -760,7 +761,7 @@ export const useJenga = create<JengaState>((set, get) => ({
     const updated = await api.actOnPurchaseOrder(poId, 'link', taskId);
     get().logActivity(
       updated
-        ? { source: 'zip', status: 'ok', title: `${poId} linked to ${taskId}` }
+        ? { source: 'zip', status: 'ok', title: `${displayId(poId)} linked to ${displayId(taskId)}` }
         : { source: 'zip', status: 'error', title: `Link of ${poId} did not land` },
     );
     if (!updated || get().activeProjectId !== site) return;
