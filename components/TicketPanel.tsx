@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRole } from "@/lib/role-context";
+import { VideoEvidence } from "@/components/VideoEvidence";
 import type { Report, Ticket } from "@/lib/types";
 
 const FLAG_LABEL: Record<string, string> = {
@@ -23,14 +24,14 @@ export function TicketPanel({
   const { role } = useRole();
   const [reports, setReports] = useState<Report[]>([]);
   const [reportText, setReportText] = useState("");
-  const [mediaUrl, setMediaUrl] = useState("");
+  const [videoFile, setVideoFile] = useState<File | null>(null);
   const [delayDays, setDelayDays] = useState(3);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     setReports([]);
     setReportText("");
-    setMediaUrl("");
+    setVideoFile(null);
     if (!ticket) return;
     fetch(`/api/reports?ticketId=${ticket.ID}`)
       .then((r) => r.json())
@@ -63,13 +64,25 @@ export function TicketPanel({
     if (!reportText.trim()) return;
     setBusy(true);
     try {
+      let mediaId: string | null = null;
+      if (videoFile) {
+        const form = new FormData();
+        form.append("file", videoFile);
+        form.append("projectId", ticket.PROJECT_ID);
+        form.append("branchId", ticket.BRANCH_ID);
+        form.append("ticketId", ticket.ID);
+        const uploaded = await fetch("/api/media", { method: "POST", body: form }).then((r) =>
+          r.json()
+        );
+        mediaId = uploaded.id;
+      }
       await fetch("/api/reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId: ticket.ID, reportText, mediaUrl: mediaUrl || null }),
+        body: JSON.stringify({ ticketId: ticket.ID, reportText, mediaId }),
       });
       setReportText("");
-      setMediaUrl("");
+      setVideoFile(null);
       onChanged();
       const updated = await fetch(`/api/reports?ticketId=${ticket.ID}`).then((r) => r.json());
       setReports(updated);
@@ -167,10 +180,10 @@ export function TicketPanel({
             onChange={(e) => setReportText(e.target.value)}
           />
           <input
+            type="file"
+            accept="video/*"
             className="rounded border p-2 text-sm"
-            placeholder="Photo/video URL (optional)"
-            value={mediaUrl}
-            onChange={(e) => setMediaUrl(e.target.value)}
+            onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
           />
           <button
             disabled={busy || !reportText.trim()}
@@ -196,6 +209,7 @@ export function TicketPanel({
             {pendingReport.GPTZERO_SCORE != null &&
               ` (${Math.round(pendingReport.GPTZERO_SCORE * 100)}% AI-generated probability — advisory only, never auto-rejected)`}
           </p>
+          <VideoEvidence reportId={pendingReport.ID} onProposalApplied={onChanged} />
           <div className="flex gap-2">
             <button
               disabled={busy}

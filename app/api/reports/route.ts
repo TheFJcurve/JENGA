@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { ticketId, reportText, mediaUrl } = await req.json();
+  const { ticketId, reportText, mediaUrl, mediaId } = await req.json();
   if (!ticketId || !reportText) {
     return NextResponse.json(
       { error: "ticketId and reportText are required" },
@@ -35,6 +35,16 @@ export async function POST(req: NextRequest) {
      VALUES (?, ?, 'contractor', ?, ?, ?, ?)`,
     [id, ticketId, reportText, mediaUrl ?? null, score, flag]
   );
+
+  // A clip uploaded via POST /api/media (see app/api/media/route.ts) arrives
+  // report-less — link it to this report and the ticket it's evidence for.
+  if (mediaId) {
+    await execute(`UPDATE media SET report_id = ?, ticket_id = ? WHERE id = ?`, [
+      id,
+      ticketId,
+      mediaId,
+    ]);
+  }
 
   await execute(
     `UPDATE tickets SET status = 'in_progress', updated_at = ${now()}
