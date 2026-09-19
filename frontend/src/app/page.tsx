@@ -28,8 +28,6 @@ export default function Home() {
   const reset = useJenga((s) => s.reset);
   const loading = useJenga((s) => s.loading);
   const offline = useJenga((s) => s.offline);
-  const strict = useJenga((s) => s.strict);
-  const setStrict = useJenga((s) => s.setStrict);
   const view = useJenga((s) => s.view);
   const setView = useJenga((s) => s.setView);
   const microTab = useJenga((s) => s.microTab);
@@ -134,21 +132,6 @@ export default function Home() {
               >
                 Reset
               </button>
-              <button
-                onClick={() => setStrict(!strict)}
-                aria-pressed={strict}
-                title="Hard-gate AI-written reports (Rox) / advisory only (main)"
-                className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${
-                  strict
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                }`}
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${strict ? "bg-emerald-400" : "bg-slate-300"}`}
-                />
-                Strict
-              </button>
               {/* Contractors submit from their own portal; the owner reviews here. */}
               <ApprovalQueue />
             </>
@@ -203,16 +186,29 @@ function SiteTab() {
   // share of the width beside the twin.
   const columnRef = useRef<HTMLDivElement>(null);
   const bandRef = useRef<HTMLDivElement>(null);
-  const [topFrac, setTopFrac, resetTop] = useFraction("jenga.split.top", 0.66, 0.15, 0.85);
-  const [graphFrac, setGraphFrac, resetGraph] = useFraction("jenga.split.graph", 0.5, 0.2, 0.8);
+  const [topFrac, setTopFrac, resetTop] = useFraction(
+    "jenga.split.top",
+    0.66,
+    0.15,
+    0.85,
+  );
+  const [graphFrac, setGraphFrac, resetGraph] = useFraction(
+    "jenga.split.graph",
+    0.5,
+    0.2,
+    0.8,
+  );
 
   return (
     <div ref={columnRef} className="flex h-full min-h-0 w-full flex-col">
       {/* Top band: blueprint + twin side by side, verdict/pipeline rail on the right. */}
-      <div className="flex min-h-0 shrink-0" style={{ height: `${topFrac * 100}%` }}>
+      <div
+        className="flex min-h-0 shrink-0"
+        style={{ height: `${topFrac * 100}%` }}
+      >
         <div ref={bandRef} className="flex min-w-0 flex-1">
           <div
-            className="min-w-0 flex-1 lg:flex-none lg:[width:var(--graph-w)]"
+            className="min-w-0 flex-1 lg:flex-none lg:w-(--graph-w)"
             style={{ ["--graph-w" as string]: `${graphFrac * 100}%` }}
           >
             <WorkGraph />

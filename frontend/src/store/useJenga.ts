@@ -139,7 +139,11 @@ interface JengaState {
   mode: ViewMode;
   selectedTaskId: string | null;
   selectedZone: Zone | null;
-  /** Hard-gate AI-written reports (ours) vs. record the score and move on (main's). */
+  /**
+   * Hard-gate AI-written reports. Always on: there is no toggle any more, since
+   * the owner reviews every update anyway. Kept as state so each verify request
+   * still says `strict=true` explicitly.
+   */
   strict: boolean;
 
   verdict: Verdict | null;
@@ -186,7 +190,6 @@ interface JengaState {
   setView: (v: SiteView) => void;
   setMicroTab: (t: MicroTab) => void;
   setMode: (m: ViewMode) => void;
-  setStrict: (v: boolean) => void;
   selectTask: (id: string | null) => void;
   selectZone: (z: Zone | null) => void;
   clearVerdict: () => void;
@@ -432,7 +435,6 @@ export const useJenga = create<JengaState>((set, get) => ({
   setView: (view) => set({ view }),
   setMicroTab: (microTab) => set({ microTab }),
   setMode: (mode) => set({ mode }),
-  setStrict: (strict) => set({ strict }),
   selectTask: (selectedTaskId) => set({ selectedTaskId }),
   selectZone: (selectedZone) => set({ selectedZone }),
   clearVerdict: () => set({ verdict: null, sideEffect: null }),
