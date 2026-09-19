@@ -61,6 +61,30 @@ function Canvas() {
   // `fitView` on <ReactFlow> fits once, on mount. Switching blueprint <-> logical
   // puts the same nodes somewhere else entirely, so refit after the new positions
   // are applied. (`useNodesInitialized` reads false throughout, so it can't gate this.)
+  // The pane is resizable (drag the dividers on the Site tab), and React Flow
+  // does not reframe on its own when its box changes size. Refit once a resize
+  // settles. The first observation is the mount itself, which `fitView` already handles.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    let seen = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const observer = new ResizeObserver(() => {
+      if (!seen) {
+        seen = true;
+        return;
+      }
+      clearTimeout(timer);
+      timer = setTimeout(() => void fitView({ duration: 150, padding: 0.1 }), 120);
+    });
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      clearTimeout(timer);
+    };
+  }, [fitView]);
+
   const lastMode = useRef(mode);
   useEffect(() => {
     if (lastMode.current === mode) return;
@@ -112,6 +136,7 @@ function Canvas() {
   }, [edgesRaw, tasks]);
 
   return (
+    <div ref={wrapRef} className="h-full w-full">
     <ReactFlow
       key={graphKey}
       nodes={nodes}
@@ -163,6 +188,7 @@ function Canvas() {
       )}
       <Controls className="!bottom-4 !left-4" />
     </ReactFlow>
+    </div>
   );
 }
 
