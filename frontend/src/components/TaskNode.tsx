@@ -9,6 +9,8 @@ import type { Task } from '@/lib/types';
 export interface TaskNodeData extends Record<string, unknown> {
   task: Task;
   selected: boolean;
+  /** Outside the current focus: drawn faint so the focused task and its neighbours read. */
+  dimmed?: boolean;
   thumbnail: string | null;
 }
 
@@ -17,7 +19,7 @@ export const NODE_W = 176;
 export const NODE_H = 64;
 
 function TaskNodeImpl({ data }: NodeProps) {
-  const { task, selected, thumbnail } = data as unknown as TaskNodeData;
+  const { task, selected, dimmed, thumbnail } = data as unknown as TaskNodeData;
   const denied = useJenga((s) => isDenied(task, s.reports));
   const style = denied ? DENIED_STYLE : STATE_STYLE[task.state];
 
@@ -25,7 +27,7 @@ function TaskNodeImpl({ data }: NodeProps) {
     <motion.div
       animate={{ scale: selected ? 1.06 : 1 }}
       transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-      style={{ width: NODE_W, height: NODE_H }}
+      style={{ width: NODE_W, height: NODE_H, opacity: dimmed ? 0.3 : 1, transition: 'opacity 200ms' }}
       className={[
         'rounded-md border px-2 py-1.5 text-[11px] shadow-sm',
         style.chip,

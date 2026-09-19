@@ -169,23 +169,27 @@ export default function Home() {
   );
 }
 
-/**
- * The work surface, consolidated.
- *
- * Blueprint graph on the left, digital twin directly beside it on the right, the
- * schedule spanning the full width underneath, and the agent's verdict in a
- * right rail that only takes space when there is something to say — so the
- * blueprint is never covered by the panel describing it. This is the layout the
- * restructure was for: one primary thing per region instead of five panels
- * fighting over one viewport.
- */
 function SiteTab() {
-  // Both dividers are draggable and remembered. `topFrac` is the share of the
-  // column the graph/twin band takes (the schedule gets the rest, so dragging
-  // the divider up gives the timeline more height); `graphFrac` is the graph's
-  // share of the width beside the twin.
   const columnRef = useRef<HTMLDivElement>(null);
   const bandRef = useRef<HTMLDivElement>(null);
+  const clearFocus = useJenga((s) => s.clearFocus);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const el = e.target as HTMLElement | null;
+      if (
+        el &&
+        (el.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))
+      )
+        return;
+      clearFocus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [clearFocus]);
+
   const [topFrac, setTopFrac, resetTop] = useFraction(
     "jenga.split.top",
     0.66,

@@ -18,6 +18,7 @@ import type {
   Verdict, 
   Zone,
 } from '@/lib/types';
+import type { FocusOrigin } from '@/lib/focus';
 
 /** Milliseconds of delay per topological rank during the cascade. */
 export const CASCADE_STEP_MS = 120;
@@ -137,8 +138,14 @@ interface JengaState {
   stageHistory: Record<string, StageEvent[]>;
 
   mode: ViewMode;
+  /**
+   * The focus: one task or one zone, never both. Every view frames it (graph fit,
+   * twin camera, schedule row) and clearing it resets them all. `focusOrigin` says
+   * which view the click came from, so the graph does not re-zoom on its own click.
+   */
   selectedTaskId: string | null;
   selectedZone: Zone | null;
+  focusOrigin: FocusOrigin | null;
   /**
    * Hard-gate AI-written reports. Always on: there is no toggle any more, since
    * the owner reviews every update anyway. Kept as state so each verify request
@@ -190,8 +197,9 @@ interface JengaState {
   setView: (v: SiteView) => void;
   setMicroTab: (t: MicroTab) => void;
   setMode: (m: ViewMode) => void;
-  selectTask: (id: string | null) => void;
-  selectZone: (z: Zone | null) => void;
+  selectTask: (id: string | null, origin?: FocusOrigin) => void;
+  selectZone: (z: Zone | null, origin?: FocusOrigin) => void;
+  clearFocus: () => void;
   clearVerdict: () => void;
   loadSensors: (id: string) => Promise<void>;
   restoreIdentity: () => void;
@@ -249,6 +257,7 @@ const EMPTY_SITE = {
   stageHistory: {},
   selectedTaskId: null,
   selectedZone: null,
+  focusOrigin: null,
   verdict: null,
   sideEffect: null,
   attributions: [],
@@ -407,6 +416,8 @@ export const useJenga = create<JengaState>((set, get) => ({
       attributions: [],
       sideEffect: null,
       selectedTaskId: null,
+      selectedZone: null,
+      focusOrigin: null,
       sensors: {},
     });
     // Nothing to re-seed on a site with no project: reloading here would pull
@@ -435,8 +446,21 @@ export const useJenga = create<JengaState>((set, get) => ({
   setView: (view) => set({ view }),
   setMicroTab: (microTab) => set({ microTab }),
   setMode: (mode) => set({ mode }),
-  selectTask: (selectedTaskId) => set({ selectedTaskId }),
-  selectZone: (selectedZone) => set({ selectedZone }),
+  // Task and zone are one focus: choosing either replaces the other, and choosing
+  // nothing clears both, so "deselect" always means the same reset.
+  selectTask: (id, origin = 'schedule') =>
+    set(
+      id
+        ? { selectedTaskId: id, selectedZone: null, focusOrigin: origin }
+        : { selectedTaskId: null, selectedZone: null, focusOrigin: null },
+    ),
+  selectZone: (zone, origin = 'twin') =>
+    set(
+      zone
+        ? { selectedZone: zone, selectedTaskId: null, focusOrigin: origin }
+        : { selectedTaskId: null, selectedZone: null, focusOrigin: null },
+    ),
+  clearFocus: () => set({ selectedTaskId: null, selectedZone: null, focusOrigin: null }),
   clearVerdict: () => set({ verdict: null, sideEffect: null }),
 
   /**

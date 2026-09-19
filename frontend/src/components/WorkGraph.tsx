@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -16,6 +16,7 @@ import '@xyflow/react/dist/style.css';
 import { nodeTypes, NODE_H, NODE_W, type TaskNodeData } from './TaskNode';
 import { useJenga, type ViewMode } from '@/store/useJenga';
 import { DENIED_STYLE, STATE_STYLE } from '@/lib/theme';
+import { edgeInFocus, focusNodeIds } from '@/lib/focus';
 import type { GraphEdge, Task } from '@/lib/types';
 
 /** Authoritative blueprint coordinate space. Task x/y are pixels in this space. */
@@ -50,13 +51,43 @@ function Canvas() {
   const mode = useJenga((s) => s.mode);
   const selectedTaskId = useJenga((s) => s.selectedTaskId);
   const selectedZone = useJenga((s) => s.selectedZone);
+  const focusOrigin = useJenga((s) => s.focusOrigin);
   const selectTask = useJenga((s) => s.selectTask);
+  const clearFocus = useJenga((s) => s.clearFocus);
 
   const { fitView } = useReactFlow();
   // Which nodes are on screen. Task ids only: a state change moves nothing and
   // must not reset the zoom. A different site remounts the flow (`key` below), so
   // its own fit-on-mount frames the new nodes once they are measured.
   const graphKey = useMemo(() => tasks.map((t) => t.id).join(), [tasks]);
+
+  // What the selection frames: the task and its direct neighbours, or a zone's
+  // tasks. Null when nothing is selected, which is also "fit the whole graph".
+  const focusIds = useMemo(
+    () => focusNodeIds(selectedTaskId, selectedZone, tasks, edgesRaw),
+    [selectedTaskId, selectedZone, tasks, edgesRaw],
+  );
+  // Read by `fit` after its own delay, so it is enough to keep the ref current in an effect.
+  const focusRef = useRef(focusIds);
+  useEffect(() => {
+    focusRef.current = focusIds;
+  }, [focusIds]);
+
+  // The one place the viewport is framed. Every refit (selection, resize, mode
+  // switch) goes through it, so a resize while something is focused keeps the
+  // focus instead of snapping back out to the whole graph.
+  const fit = useCallback(
+    (duration: number) => {
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const ids = focusRef.current;
+      void fitView(
+        ids
+          ? { nodes: [...ids].map((id) => ({ id })), padding: 0.35, maxZoom: 1.2, duration: reduced ? 0 : duration }
+          : { padding: 0.1, duration: reduced ? 0 : duration },
+      );
+    },
+    [fitView],
+  );
 
   // `fitView` on <ReactFlow> fits once, on mount. Switching blueprint <-> logical
   // puts the same nodes somewhere else entirely, so refit after the new positions
@@ -76,22 +107,35 @@ function Canvas() {
         return;
       }
       clearTimeout(timer);
-      timer = setTimeout(() => void fitView({ duration: 150, padding: 0.1 }), 120);
+      timer = setTimeout(() => fit(150), 120);
     });
     observer.observe(el);
     return () => {
       observer.disconnect();
       clearTimeout(timer);
     };
-  }, [fitView]);
+  }, [fit]);
 
   const lastMode = useRef(mode);
   useEffect(() => {
     if (lastMode.current === mode) return;
     lastMode.current = mode;
-    const timer = setTimeout(() => void fitView({ duration: 200, padding: 0.1 }), 60);
+    const timer = setTimeout(() => fit(200), 60);
     return () => clearTimeout(timer);
-  }, [mode, fitView]);
+  }, [mode, fit]);
+
+  // Selecting frames the focus; clearing puts the whole graph back. A click on a
+  // graph node does not zoom: the node under the pointer is already where the
+  // user is looking, and moving it would make the click feel like a drag.
+  const focusKey = selectedTaskId ?? (selectedZone ? `zone:${selectedZone}` : '');
+  const lastFocusKey = useRef(focusKey);
+  useEffect(() => {
+    if (lastFocusKey.current === focusKey) return;
+    lastFocusKey.current = focusKey;
+    if (focusKey && focusOrigin === 'graph' && selectedTaskId) return;
+    const timer = setTimeout(() => fit(350), 30);
+    return () => clearTimeout(timer);
+  }, [focusKey, focusOrigin, selectedTaskId, fit]);
 
   const logicalPos = useMemo(
     () => (mode === 'logical' ? layout(tasks, edgesRaw) : null),
@@ -109,10 +153,11 @@ function Canvas() {
         data: {
           task: t,
           selected: t.id === selectedTaskId || (!!selectedZone && t.zone === selectedZone),
+          dimmed: !!focusIds && !focusIds.has(t.id),
           thumbnail: null,
         },
       })),
-    [tasks, logicalPos, selectedTaskId, selectedZone],
+    [tasks, logicalPos, selectedTaskId, selectedZone, focusIds],
   );
 
   const edges: Edge[] = useMemo(() => {
@@ -121,19 +166,22 @@ function Canvas() {
       const src = byId.get(e.source);
       const tgt = byId.get(e.target);
       const critical = !!src?.is_critical && !!tgt?.is_critical;
+      const inFocus = edgeInFocus(e, focusIds);
       return {
         id: `${e.source}->${e.target}`,
         source: e.source,
         target: e.target,
         // `animated` gives the dashed flow for free — no custom edge needed.
-        animated: critical,
+        animated: critical && inFocus,
         style: {
           stroke: critical ? '#dc2626' : '#cbd5e1',
           strokeWidth: critical ? 2 : 1,
+          opacity: inFocus ? 1 : 0.2,
+          transition: 'opacity 200ms',
         },
       };
     });
-  }, [edgesRaw, tasks]);
+  }, [edgesRaw, tasks, focusIds]);
 
   return (
     <div ref={wrapRef} className="h-full w-full">
@@ -142,8 +190,8 @@ function Canvas() {
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
-      onNodeClick={(_, n) => selectTask(n.id)}
-      onPaneClick={() => selectTask(null)}
+      onNodeClick={(_, n) => selectTask(n.id, 'graph')}
+      onPaneClick={() => clearFocus()}
       fitView
       minZoom={0.2}
       maxZoom={2}
