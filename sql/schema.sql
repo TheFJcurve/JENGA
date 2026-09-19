@@ -62,3 +62,27 @@ CREATE TABLE IF NOT EXISTS reports (
   decided_at TIMESTAMP_NTZ,
   submitted_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
 );
+
+-- One row per uploaded clip, whether attached to a contractor's report or
+-- (later) pushed by an unattended site camera — see lib/video/analyze.ts.
+-- report_id is the seam: set for a report's clip, NULL for a feed clip not
+-- yet tied to a report. ticket_id is likewise NULL until something (today:
+-- the report it's attached to) attributes the clip to a ticket.
+CREATE TABLE IF NOT EXISTS media (
+  id STRING DEFAULT UUID_STRING() PRIMARY KEY,
+  project_id STRING NOT NULL REFERENCES projects(id),
+  branch_id STRING NOT NULL REFERENCES branches(id),
+  ticket_id STRING REFERENCES tickets(id),
+  report_id STRING REFERENCES reports(id),
+  source STRING NOT NULL, -- 'report' | 'feed'
+  camera_id STRING,
+  captured_at TIMESTAMP_NTZ,
+  mime_type STRING NOT NULL,
+  byte_size NUMBER,
+  storage_path STRING NOT NULL,
+  analysis_status STRING NOT NULL DEFAULT 'pending', -- 'pending' | 'running' | 'done' | 'failed'
+  analysis_json STRING, -- JSON text, not VARIANT — see lib/postgres.ts toPgPlaceholders note
+  analysis_error STRING,
+  analyzed_at TIMESTAMP_NTZ,
+  created_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
