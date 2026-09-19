@@ -60,9 +60,6 @@ export interface GraphResponse {
 
 export type VerdictStatus = 'APPROVED' | 'DISPUTED' | 'UNDER_REVIEW';
 
-/** Which curing regime the simulator is driving a ticket through. */
-export type SensorMode = 'normal' | 'cold';
-
 /** Curing telemetry for one ticket — the agent's fifth evidence source. */
 export interface SensorStatus {
   avg_temp_c: number | null;
@@ -82,29 +79,6 @@ export interface SensorStatus {
   window_s: number;
   window_requested_s: number;
   source: 'tiger' | 'mock';
-}
-
-/** One `time_bucket` row: live off the hypertable, or off the 5-min aggregate. */
-export interface SensorBucket {
-  bucket: string;
-  avg_temp: number | null;
-  avg_humidity: number | null;
-  min_temp: number | null;
-  max_temp: number | null;
-  min_humidity: number | null;
-  max_humidity: number | null;
-}
-
-export interface SensorPayload {
-  live: SensorBucket[];
-  /** The continuous aggregate. Always empty in mock mode — there is none to read. */
-  history: SensorBucket[];
-  status: SensorStatus;
-}
-
-export interface SensorScenario {
-  ticket_id: string;
-  mode: SensorMode;
 }
 
 /** One node in the agent's resolution trace (the five-node LangGraph). */

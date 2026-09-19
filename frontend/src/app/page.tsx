@@ -6,12 +6,10 @@ import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { WorkGraph } from '@/components/WorkGraph';
 import { Timeline } from '@/components/Timeline';
 import { VerdictPanel, AgentRunning } from '@/components/VerdictPanel';
-import { ProcurementPanel } from '@/components/ProcurementPanel';
 import { ApprovalQueue } from '@/components/ApprovalQueue';
 import { ContractorPortal } from '@/components/ContractorPortal';
 import { RoleSwitcher } from '@/components/RoleSwitcher';
 import { MacroHeatmap } from '@/components/MacroHeatmap';
-import { SensorStrip } from '@/components/SensorStrip';
 import { DocumentUpload } from '@/components/DocumentUpload';
 import { useJenga } from '@/store/useJenga';
 
@@ -147,7 +145,7 @@ export default function Home() {
           <OnboardSite />
         ) : (
           <div className="flex h-full min-h-0 w-full flex-col">
-            {/* Top half: DAG (blueprint/logical) 60%, 3D twin + procurement 40%. */}
+            {/* Top half: DAG (blueprint/logical) 60%, 3D twin 40%. */}
             <div className="flex min-h-0 flex-1">
               <div className="relative min-w-0 flex-[3]">
                 <WorkGraph />
@@ -157,13 +155,10 @@ export default function Home() {
 
               {/* Follows the body, not the site — see hasGraph/onboarded note
                   above; gating this on the site would leave a digital twin
-                  flanking a panel that says the site has no drawings. */}
+                  panel that says the site has no drawings. */}
               {show3d && (
-                <div className="flex min-w-0 flex-[2] flex-col border-l border-slate-200">
-                  <div className="relative min-h-0 flex-1">
-                    <StationView />
-                  </div>
-                  <ProcurementPanel />
+                <div className="relative min-w-0 flex-[2] border-l border-slate-200">
+                  <StationView />
                 </div>
               )}
             </div>
@@ -172,9 +167,6 @@ export default function Home() {
                 ledger used to flank this in its own rail; its function now
                 lives inside Timeline itself, scoped to the selected task. */}
             <div className="flex min-h-0 flex-1 flex-col border-t border-slate-200">
-              {/* Above the schedule. Renders nothing until a non-pending
-                  ticket is selected. */}
-              <SensorStrip />
               <div className="min-h-0 flex-1">
                 <Timeline />
               </div>

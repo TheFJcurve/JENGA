@@ -31,6 +31,11 @@ export function Timeline() {
   // scoped to whichever task is selected rather than shown as an always-on,
   // unfiltered append-only list.
   const attributions = useJenga((s) => s.attributions);
+  // Same idea for procurement, which had its own standalone panel under the
+  // 3D view — retired in favor of showing only what's relevant to whichever
+  // task is selected, alongside its slip detail, right where the click
+  // happened.
+  const purchaseOrders = useJenga((s) => s.purchaseOrders);
 
   /**
    * Derive the axis from the data rather than trusting projectDuration alone:
@@ -65,6 +70,10 @@ export function Timeline() {
   const selectedAttributions = useMemo(
     () => (selectedTaskId ? attributions.filter((a) => a.task_id === selectedTaskId) : []),
     [attributions, selectedTaskId],
+  );
+  const selectedPurchaseOrders = useMemo(
+    () => (selectedTaskId ? purchaseOrders.filter((po) => po.linked_task === selectedTaskId) : []),
+    [purchaseOrders, selectedTaskId],
   );
 
   return (
@@ -178,12 +187,12 @@ export function Timeline() {
             </div>
           </div>
 
-          {selectedAttributions.length > 0 && (
+          {(selectedAttributions.length > 0 || selectedPurchaseOrders.length > 0) && (
             // Capped rather than left to grow unbounded — same reasoning as
             // VerdictPanel's own max-h-[52%]: without a cap, a task with
-            // several attribution entries could squeeze the row list above
-            // toward zero height on a short viewport, since rows only get
-            // flex-1 of whatever this shrink-0 sibling leaves behind.
+            // several attribution/procurement entries could squeeze the row
+            // list above toward zero height on a short viewport, since rows
+            // only get flex-1 of whatever this shrink-0 sibling leaves behind.
             <div className="flex max-h-[45%] shrink-0 flex-col gap-2 overflow-y-auto border-t border-slate-200 bg-slate-50 p-2.5">
               <AnimatePresence initial={false}>
                 {selectedAttributions.map((a) => (
@@ -230,6 +239,51 @@ export function Timeline() {
                   </motion.div>
                 ))}
               </AnimatePresence>
+
+              {selectedPurchaseOrders.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  {selectedAttributions.length > 0 && (
+                    <h4 className="text-[10px] uppercase tracking-wider text-slate-400">
+                      Procurement (Zip)
+                    </h4>
+                  )}
+                  <AnimatePresence initial={false}>
+                    {selectedPurchaseOrders.map((po) => (
+                      <motion.div
+                        key={po.id}
+                        layout
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`rounded-lg border p-2.5 text-[10px] ${
+                          po.status === 'rescheduled'
+                            ? 'border-sky-200 bg-sky-50'
+                            : 'border-slate-200 bg-white'
+                        }`}
+                      >
+                        <div className="flex justify-between">
+                          <span className="font-mono text-slate-700">{po.id}</span>
+                          <span
+                            className={
+                              po.status === 'rescheduled' ? 'text-sky-700' : 'text-slate-400'
+                            }
+                          >
+                            {po.status}
+                          </span>
+                        </div>
+                        <p className="text-slate-500">
+                          {po.material} · {po.quantity}
+                        </p>
+                        <p className="text-slate-400">
+                          {po.vendor} → {po.delivery_date}
+                        </p>
+                        {po.last_action && (
+                          <p className="mt-1 text-sky-700">{po.last_action}</p>
+                        )}
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
             </div>
           )}
 
