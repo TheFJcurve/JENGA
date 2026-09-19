@@ -16,7 +16,6 @@ import { MacroHeatmap } from "@/components/MacroHeatmap";
 import { DocumentUpload } from "@/components/DocumentUpload";
 import { useJenga } from "@/store/useJenga";
 
-// Three.js touches window during module init, so keep it off the server.
 const StationView = dynamic(
   () => import("@/components/StationView").then((m) => m.StationView),
   { ssr: false, loading: () => <div className="h-full w-full bg-slate-50" /> },
