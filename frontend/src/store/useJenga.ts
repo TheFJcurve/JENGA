@@ -204,7 +204,7 @@ export const useJenga = create<JengaState>((set, get) => ({
   activeSiteName: DEFAULT_SITE_NAME,
   view: 'micro',
 
-  mode: 'blueprint',
+  mode: 'logical',
   strict: true,
 
   hotzones: null,
@@ -222,10 +222,11 @@ export const useJenga = create<JengaState>((set, get) => ({
   async load(projectId) {
     const target = projectId ?? get().activeProjectId ?? DEFAULT_PROJECT_ID;
     set({ loading: true, activeProjectId: target });
-    const [g, pos, hotzones] = await Promise.all([
+    const [g, pos, hotzones, reports] = await Promise.all([
       api.fetchGraph(target),
       api.fetchPurchaseOrders(),
       api.fetchHotzones(),
+      api.fetchReports(target, get().role === 'contractor' ? 'contractor' : 'owner'),
     ]);
     // Two sites clicked in quick succession: the slower response is the older
     // site's, and must not land on top of the newer one.
@@ -241,6 +242,7 @@ export const useJenga = create<JengaState>((set, get) => ({
       baseline: Object.fromEntries(g.tasks.map((t) => [t.id, { es: t.es, ef: t.ef }])),
       stageHistory: recordStages({}, g.tasks),
       purchaseOrders: pos,
+      reports,
       hotzones,
       loading: false,
       offline: api.isOffline(),

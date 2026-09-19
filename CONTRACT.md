@@ -118,6 +118,13 @@ company (`data/portal.json`).
   `ai_override`). `409` if already decided.
 
 ```ts
+**Denied overlay (3D and 2D).** `denied` is not a task state: it is a presentation overlay for a task
+that is `active` whose latest report was rejected by the owner. It draws solid, pulsing red
+(`#dc2626`, opacity 0.9), distinct from `disputed`'s red wireframe, and clears when the contractor
+resubmits (amber `under_review`) or the owner approves. A zone box shows its worst live state
+(denied > disputed > under_review > active > blocked > pending) and `verified` only when every task in
+it is verified; its label carries the `n/m verified` count.
+
 **Deadlines and denial impact (changed).** `Task.due_day?: number | null` is the contractual
 due day, an offset from the project's `start_date` (`data/portal.json`; `PortalProject.start_date`).
 The project deadline is the latest task due day. A denial's cost is predicted by
