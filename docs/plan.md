@@ -2,7 +2,7 @@
 
 ## Context
 
-The goal is a HackTheNorth submission: a "JIRA/Linear for construction" where tickets are physical construction tasks (groundwork, road segments, height clearance, truck logistics) whose dependencies form a DAG. Delays or cancellations should be able to fork the plan into an alternate timeline; a ticket is closed when the construction company submits a progress report (photo/video + text) that the project owner approves. Reports are checked for AI-generated text via GPTZero, kept real and visible in the UI for a HackTheNorth sponsor prize track even though (see below) it's demoted to advisory-only. The data layer runs on Postgres — a Snowflake-backed system-of-record was considered for a separate sponsor track but dropped: Snowflake credentials never materialized, and maintaining a second, mostly-unused driver wasn't worth the complexity for a hackathon build.
+The goal is a HackTheNorth submission: a "JIRA/Linear for construction" where tickets are physical construction tasks (groundwork, road segments, height clearance, truck logistics) whose dependencies form a DAG. Delays or cancellations should be able to fork the plan into an alternate timeline; a ticket is closed when the construction company submits a progress report (photo/video + text) that the project owner approves. Reports are checked for AI-generated text via GPTZero and, per HackTheNorth sponsor prize tracks, Snowflake must be a real, visible part of the stack — not an implementation detail buried behind another database.
 
 Research surfaced two things that reshaped the plan from the original request:
 - **GPTZero is a poor authenticity signal for this domain** (~60%+ false-positive rate on non-native-English writing, and accuracy collapses under 500 words — exactly the profile of a real contractor's progress note). It's kept anyway for sponsor-track visibility, but demoted to a non-blocking flag rather than a gate.
@@ -19,13 +19,13 @@ This plan is scoped for a fixed, short hackathon build window: pick the wedge th
 - Progress report submission (text + photo/video upload) by the "Construction Company" role, GPTZero-scored on submission, approved/rejected by the "Project Owner" role. Approval closes the ticket; rejection returns it to in-progress.
 - **Video evidence analysis**: an uploaded clip is checked with Gemini against the branch's own tickets and compared to the board's actual state, surfacing one-click proposals when they disagree. See "Video Evidence Pipeline" below — this was scoped out of phase one below and built in phase two once the DAG/report/branch floor was solid.
 - Role switcher (no real auth) to view the app as either actor against shared demo data.
-- Postgres as the single system of record — tickets, edges, branches, and reports all live there.
+- Snowflake as the single system of record — tickets, edges, branches, and reports all live there.
 
 **Explicitly out of scope for v1** (cut during grilling; video analysis below was revisited and built in phase two, see "Video Evidence Pipeline"):
 - Real authentication, multi-tenant orgs, multiple contractors/subcontractors per project.
 - Cross-ticket text-similarity or photo/video EXIF-tampering detection (the more fraud-relevant signals research surfaced) — noted in the pitch as "what we'd build next," not built now.
 - General N-way merge/conflict resolution for branches (see Branching Semantics below for the simplified model actually being built).
-- Snowflake — originally planned as the system of record for a second sponsor track (see Context); dropped when credentials didn't come through in time. The data layer (`lib/db.ts`) is Postgres-only.
+- Postgres or any second database — everything routes through Snowflake, including operational writes, accepting the OLTP/OLAP mismatch as a deliberate hackathon trade-off in exchange for sponsor-track visibility.
 
 ## Competitive Landscape (for the pitch)
 
@@ -37,17 +37,17 @@ This plan is scoped for a fixed, short hackathon build window: pick the wedge th
 | Report authenticity/fraud detection | None found | GPTZero flag on report text; video contradiction-detection (see "Video Evidence Pipeline") as a second, independent signal; cross-report similarity + media-metadata checks remain the credible next step |
 | Ticket-style UX for construction | None found (existing tools are Gantt- or document-centric, not ticket-centric) | Ticket/board metaphor construction PMs may already know from software tools |
 
-## Data Model (Postgres)
+## Data Model (Snowflake)
 
-Single schema (`sql/schema.sql`), five core tables:
+Single schema, five core tables:
 
-- `tickets(id, project_id, branch_id, title, description, status, planned_start, planned_end, original_planned_end, actual_start, actual_end, created_at)` — `original_planned_end` is set once at creation and never touched again by delays/ripples/merges; see "DAG View: Timeline Layout" for what it's for.
+- `tickets(id, project_id, branch_id, title, description, status, planned_start, planned_end, actual_start, actual_end, created_at)`
 - `dependencies(id, branch_id, parent_ticket_id, child_ticket_id)` — the DAG edges, scoped per branch.
 - `branches(id, project_id, name, forked_from_branch_id, forked_from_ticket_id, forked_at, status)` — `status` is `active` or `merged`; the trunk is the branch with `forked_from_branch_id IS NULL`.
 - `reports(id, ticket_id, submitted_by_role, text, media_url, gptzero_score, gptzero_flag, owner_decision, decided_at)`
 - `media(id, project_id, branch_id, ticket_id, report_id, source, camera_id, captured_at, mime_type, byte_size, storage_path, analysis_status, analysis_json, analysis_error, analyzed_at)` — one row per uploaded clip; see "Video Evidence Pipeline". `ticket_id`/`report_id` are nullable so a clip can exist before anything attributes it to either (the seam a future site-camera feed would post through).
 
-DAG traversal (downstream dependents of a ticket, cycle checks on edge insert) uses a recursive CTE (`WITH RECURSIVE`) over `dependencies`. Reject any edge insert whose reachability check would create a cycle.
+DAG traversal (downstream dependents of a ticket, cycle checks on edge insert) uses Snowflake recursive CTEs (`WITH RECURSIVE`) over `dependencies`. Reject any edge insert whose reachability check would create a cycle.
 
 ## Branching Semantics (simplified for feasibility)
 
@@ -63,20 +63,14 @@ This gets the real pitch moment (fork → edit → merge, with a visible before/
 
 ## Verification Workflow
 
-1. Construction Company role opens a ticket, submits a report as a **PDF upload** (not free text — matches what a crew actually produces in the field). The API route (`app/api/reports/route.ts`) saves the PDF to `public/uploads/`, extracts its embedded text with `pdf-parse` (text-layer extraction, not OCR — see "PDF Progress Reports" below for why true OCR was rejected), and uses that extracted text as the report body. A PDF with no text layer (e.g. a photographed page) degrades to a placeholder string rather than failing the submission.
-2. If text was extracted, the API route calls the GPTZero API server-side with it and stores `gptzero_score`/`gptzero_flag` on the report row (`lib/gptzero.ts`, unchanged). This call is real and shown in the UI (sponsor-track requirement) but never blocks submission or auto-rejects; it's skipped entirely (not just "unavailable") when there's no extracted text to check.
-3. Project Owner role sees the extracted text, a link to the submitted PDF, and the GPTZero flag, and approves or rejects. Approve → ticket status `done`, triggers downstream recalculation. Reject → ticket returns to `in_progress`, contractor can resubmit.
+1. Construction Company role opens a ticket, submits a report: free text + a photo/video upload.
+2. On submit, the API route calls the GPTZero API server-side with the report text and stores `gptzero_score`/`gptzero_flag` on the report row. This call is real and shown in the UI (sponsor-track requirement) but never blocks submission or auto-rejects.
+3. Project Owner role sees the report with the GPTZero flag displayed alongside it, and approves or rejects. Approve → ticket status `done`, triggers downstream recalculation. Reject → ticket returns to `in_progress`, contractor can resubmit.
 4. GPTZero API failure/timeout is caught and shown as "authenticity check unavailable" rather than blocking the approval flow.
-
-### PDF Progress Reports
-
-GPTZero has its own file-upload endpoint (`predict/files`, PDF/DOCX/TXT, same API key/tier as `predict/text`) that does text-layer extraction internally — but not true OCR, and its response isn't confirmed to echo back extracted text for display. True OCR (`tesseract.js`) was considered and rejected: it doesn't operate on raw PDF bytes (needs a rasterize-to-image step first via `pdfjs-dist`), and its own performance docs warn that cold-start worker/model-download latency can run several seconds to tens of seconds — a real timeout risk in a synchronous submit request, and properly supporting it would need an async job architecture. Locked approach: extract text ourselves with `pdf-parse` and send that to the existing `predict/text` call, so the owner gets a readable inline preview without opening the PDF. Accepted limitation: a scanned/handwritten PDF with no text layer extracts to a placeholder string, not real OCR.
-
-`pdf-parse` needs `import "pdf-parse/worker"` before importing `pdf-parse` itself (`app/api/reports/route.ts`) and `serverExternalPackages: ["pdf-parse", "@napi-rs/canvas"]` in `next.config.ts` — without both, it throws "Setting up fake worker failed" under Next.js/Turbopack. Also use `getText()`'s `pages[].text` array, not its pre-joined `.text` field — the latter interleaves human-readable `-- N of M --` page-separator markers unsuited for showing the owner a clean report body.
 
 ## Video Evidence Pipeline
 
-Phase two, built once the trunk DAG, branching, and PDF-report flow above were solid. A contractor's report is a PDF (above), and can *also* carry an optional video clip — the two are independent evidence channels on the same report: `reports.media_url` holds the PDF's own path, while a linked `media` row (via `mediaId`) holds the video. Gemini turns that clip into grounded, DAG-comparable findings, and JENGA — not the model — decides what those findings mean for the plan.
+Phase two, built once the trunk DAG, branching, and text-report flow above were solid. A contractor's report can carry a video clip; Gemini turns it into grounded, DAG-comparable findings, and JENGA — not the model — decides what those findings mean for the plan.
 
 **Why not just ask the model "is this done?"**: an open-ended progress judgement produces prose that can't be compared to anything, and asked for a percentage a model will invent one. Instead the model is given a *closed set* of the branch's own tickets (id, title, description, planned dates, status) and the contractor's report text, and asked only for grounded observations: per-ticket state (`not_started | in_progress | complete | not_visible`), per-claim verdicts against the report text, and anything visible that no ticket covers. Every claim must carry a timestamp into the clip or it's discarded — this is both the main defense against hallucination and the UI (clicking a timestamp seeks the player there, so the owner watches the evidence rather than trusting a verdict). `not_visible` is a first-class answer so the model isn't forced to guess when the camera simply didn't show the work.
 
@@ -86,21 +80,9 @@ Storage and analysis are source-agnostic by design: a `media` row can belong to 
 
 ## Tech Stack
 
-- **Frontend**: Next.js (TypeScript) + React Flow, rendered as a Gantt-style timeline (see "DAG View: Timeline Layout") rather than a generic node-link graph.
-- **Backend**: Next.js API routes, calling Postgres via `pg` through `lib/db.ts` (parameterized queries, no ORM needed for this scale), the GPTZero API, and the Gemini API (`@google/genai`) for video analysis. Keeps all API keys server-side.
-- **No auth layer**: a role switcher (client-side toggle, e.g. a dropdown or `?role=owner|contractor` state) swaps which actions/views are available against the same Postgres data.
-
-## DAG View: Timeline Layout
-
-The graph is a full-width Gantt-style timeline, not a generic node-link diagram: x-position and bar width come from a ticket's `planned_start`/`planned_end` (`components/dagLayout.ts`), and y-position (lane) comes from greedy interval packing — the standard "minimum meeting rooms" algorithm — so tickets that overlap in time land in separate rows automatically instead of stacking. Dependency edges still render between nodes as before; they read more diagonal/horizontal than a topological layout would produce, which is expected for a Gantt-with-dependencies view (this is how Primavera/MS Project render it too). A date ruler above the graph, synced to pan/zoom via React Flow's `useViewport()`, gives the axis a visible scale.
-
-Dragging a node is visual-only: it repositions a ticket's lane to untangle overlapping bars or crossing arrows, never its dates. X always stays locked to the ticket's real planned dates, so the timeline can never show something the data doesn't back up — drag-to-reschedule (dragging a bar to edit its dates live) was considered and explicitly deferred past the hackathon as too large a scope add.
-
-Selecting a ticket opens `TicketPanel` docked full-width below the graph (not a popup/modal) — avoids overlay/z-index/click-outside handling and keeps the graph visible while reading ticket details.
-
-**Scale is adaptive, not fixed** (`computePxPerDay` in `dagLayout.ts`): a constant 40px/day works for Route 12's ~2-week span but renders a multi-year project (the seeded Eglinton Crosstown LRT spans 2011–2026) hundreds of thousands of pixels wide — found by actually loading it, not by inspection. The date ruler's tick granularity (week/month/year) scales with the same span for the same reason. React Flow's `fitView` also only auto-fits once on mount, so switching projects needs `<DagView key={projectId}>` in `app/page.tsx` to force a remount (otherwise the view keeps the previous project's stale zoom/pan), and `minZoom` is set well below React Flow's default `0.5` so a long project's full range can actually fit in frame.
-
-**Delay visualization**: each bar is a single element with a hard-stop CSS gradient, not two adjacent segments — status-colored from `planned_start` to `original_planned_end`, then red from there to the current `planned_end` (a solid color, i.e. invisible red, when a ticket hasn't slipped). Two separate `<div>`s were tried first and rejected — independently-rounded fractional widths rasterized the seam at very slightly different heights, a visible thickness mismatch. Because delay ripples (`lib/dag.ts`'s `shiftDownstreamDates`) only ever move `planned_start`/`planned_end`, never the baseline `original_planned_end`, a delay on one ticket automatically grows a red tail on every downstream ticket it pushes too — no special-casing needed. `TicketPanel` shows the same gap as exact text ("Delayed from X — now Y (N days late)"). Seeded on the real Eglinton data on two tickets with a documented original-vs-actual slip (`scripts/seed.ts`): "Revenue Service Launch Prep" (contracted Sept 2021 vs. actual Feb 2026 — the headline ~4.4-year delay) and "Systems Installation" (a smaller, separately-documented slip) — not on all 14, since most don't have a distinctly-documented sub-milestone target separate from the single real date already seeded.
+- **Frontend**: Next.js (TypeScript) + React Flow for the interactive DAG/branch visualization (node drag, animated edges, side-by-side branch rendering).
+- **Backend**: Next.js API routes, calling the Snowflake Node SDK (parameterized queries, no ORM needed for this scale), the GPTZero API, and the Gemini API (`@google/genai`) for video analysis. Keeps all API keys server-side.
+- **No auth layer**: a role switcher (client-side toggle, e.g. a dropdown or `?role=owner|contractor` state) swaps which actions/views are available against the same Snowflake data.
 
 ## Edge Cases Handled in MVP
 
@@ -115,15 +97,13 @@ Selecting a ticket opens `TicketPanel` docked full-width below the graph (not a 
 
 ## Demo Script / Seed Data
 
-`scripts/seed.ts` seeds **two** projects, selectable via the project switcher in `BranchBar.tsx` (`app/page.tsx` passes `key={projectId}` to `DagView` so switching forces a clean remount — see "DAG View: Timeline Layout" below for why that matters):
+Seed one project matching the original pitch examples directly: a road-construction project with tickets for groundwork/site clearing → height clearance/grading → road segment paving (multiple segments as parallel branches of the DAG) → truck logistics/delivery scheduling as a shared dependency feeding multiple paving tickets. This gives a DAG with genuine fan-in/fan-out (good for showing AND-join and branching) using the exact scenario the pitch already describes.
 
-**Route 12 Resurfacing** — the original pitch scenario: groundwork/site clearing → height clearance/grading → road segment paving (parallel segments) → truck logistics as a shared dependency feeding multiple paving tickets. Genuine fan-in/fan-out for AND-join and branching demos. Demo flow: show the trunk DAG → delay a groundwork ticket → show downstream ripple → fork a branch at that ticket to model "what if we reroute trucks instead" → edit the branch → merge it back and show the diff → submit a progress report (PDF) with a video clip attached as the contractor → show the GPTZero flag and, once analysis finishes, the timestamped video findings → click a timestamp to seek the clip → approve as the owner → ticket closes, DAG updates. If the clip deliberately understates or contradicts the report, show the resulting delay/fork proposal and apply it with one click.
-
-**Line 5 Eglinton Crosstown LRT** — a real, 14-ticket, 2011–2026 timeline for Toronto's badly-delayed light rail line, grounded in verified research rather than invented dates. Real delay figures (don't repeat an unverified "17 years" claim): **~4.4 years late** vs. the contracted September 2021 target, **~19 years** total from the March 2007 Transit City proposal to the actual February 8, 2026 opening. The real construction-phase → dispute → testing → launch dependency chain is seeded with 13 tickets `done` (each with an approved report — 3 link real, external, verified-working Metrolinx/Auditor-General PDFs; the other 10 link synthetic one-pagers from `scripts/generate-eglinton-pdfs.ts`, committed under `public/reference-docs/eglinton/`) and the final "Revenue Service Launch Prep" ticket left `in_progress` with no report, for a live PDF-upload demo through the real pipeline. Demo flow: switch to this project, show the real multi-year delay pattern and the litigation/settlement tickets' real evidence links, then submit a fresh PDF against the open final ticket to show the live GPTZero pipeline against real-world-shaped content.
+Demo flow: show the trunk DAG → delay a groundwork ticket → show downstream ripple → fork a branch at that ticket to model "what if we reroute trucks instead" → edit the branch → merge it back and show the diff → submit a progress report with a video clip as the contractor → show the GPTZero flag and, once analysis finishes, the timestamped video findings → click a timestamp to seek the clip → approve as the owner → ticket closes, DAG updates. If the clip deliberately understates or contradicts the report text, show the resulting delay/fork proposal and apply it with one click.
 
 ## Build Sequence (time-boxed)
 
-1. Postgres schema + seed data script (tables above, seeded road-construction scenario).
+1. Snowflake schema + seed data script (tables above, seeded road-construction scenario).
 2. Trunk-only DAG CRUD + React Flow visualization + forward recalculation on status/date change. **(This is the demo floor — must be solid before anything else.)**
 3. Report submission + GPTZero call + owner approve/reject + ticket closure.
 4. Role switcher wired to steps 2-3's permissions (owner can approve, contractor can submit).
