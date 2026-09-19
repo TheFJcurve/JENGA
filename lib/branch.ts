@@ -155,6 +155,15 @@ export async function mergeBranch(branchId: string): Promise<void> {
   // Leftover branch-scoped copies are now superseded by the updated trunk originals.
   await execute(`DELETE FROM dependencies WHERE branch_id = ?`, [branchId]);
   if (copiedTickets.length > 0) {
+    // Anything referencing a copy (reports, media — see sql/schema.sql) would
+    // otherwise violate its FK once the copy row is deleted below. Re-point
+    // both to the trunk original first — fixed once here rather than in each
+    // table's own code path.
+    for (const copy of copiedTickets) {
+      const originalId = copy.FORKED_FROM_ID!;
+      await execute(`UPDATE reports SET ticket_id = ? WHERE ticket_id = ?`, [originalId, copy.ID]);
+      await execute(`UPDATE media SET ticket_id = ? WHERE ticket_id = ?`, [originalId, copy.ID]);
+    }
     await execute(
       `DELETE FROM tickets WHERE id IN (${copiedTickets.map(() => "?").join(",")})`,
       copiedTickets.map((t) => t.ID)
