@@ -1,66 +1,62 @@
--- JENGA schema — Snowflake is the single system of record (see docs/plan.md
--- for why: hackathon sponsor-track visibility beats OLTP/OLAP purity here).
+-- JENGA schema (Postgres). The app always supplies ids explicitly
+-- (crypto.randomUUID()), so no table relies on a UUID-generating column default.
 --
 -- Run once against a fresh database:
---   snowsql -f sql/schema.sql
--- or paste into a Snowsight worksheet.
+--   psql "$DATABASE_URL" -f sql/schema.sql
 
 CREATE TABLE IF NOT EXISTS projects (
-  id STRING DEFAULT UUID_STRING() PRIMARY KEY,
-  name STRING NOT NULL,
-  created_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- The trunk of a project is the branch row with forked_from_branch_id IS NULL.
 CREATE TABLE IF NOT EXISTS branches (
-  id STRING DEFAULT UUID_STRING() PRIMARY KEY,
-  project_id STRING NOT NULL REFERENCES projects(id),
-  name STRING NOT NULL,
-  forked_from_branch_id STRING REFERENCES branches(id),
-  forked_from_ticket_id STRING,
-  status STRING NOT NULL DEFAULT 'active', -- 'active' | 'merged'
-  forked_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  name TEXT NOT NULL,
+  forked_from_branch_id TEXT REFERENCES branches(id),
+  forked_from_ticket_id TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  forked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS tickets (
-  id STRING DEFAULT UUID_STRING() PRIMARY KEY,
-  project_id STRING NOT NULL REFERENCES projects(id),
-  branch_id STRING NOT NULL REFERENCES branches(id),
-  -- Set when this row is a fork's copy of an existing trunk ticket; NULL when the
-  -- ticket was created fresh inside a branch. Drives the merge conflict check
-  -- (lib/branch.ts) and lets merge overwrite the original row by id instead of
-  -- juggling id remapping across dependency edges.
-  forked_from_id STRING REFERENCES tickets(id),
-  title STRING NOT NULL,
-  description STRING,
-  status STRING NOT NULL DEFAULT 'blocked', -- 'blocked' | 'ready' | 'in_progress' | 'done' | 'cancelled'
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  branch_id TEXT NOT NULL REFERENCES branches(id),
+  forked_from_id TEXT REFERENCES tickets(id),
+  title TEXT NOT NULL,
+  description TEXT,
+  status TEXT NOT NULL DEFAULT 'blocked',
   planned_start DATE,
   planned_end DATE,
+  original_planned_end DATE,
   actual_start DATE,
   actual_end DATE,
-  created_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
-  updated_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- DAG edges, scoped per branch: parent must be 'done' before child can leave 'blocked' (AND-join).
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS original_planned_end DATE;
+
 CREATE TABLE IF NOT EXISTS dependencies (
-  id STRING DEFAULT UUID_STRING() PRIMARY KEY,
-  branch_id STRING NOT NULL REFERENCES branches(id),
-  parent_ticket_id STRING NOT NULL REFERENCES tickets(id),
-  child_ticket_id STRING NOT NULL REFERENCES tickets(id)
+  id TEXT PRIMARY KEY,
+  branch_id TEXT NOT NULL REFERENCES branches(id),
+  parent_ticket_id TEXT NOT NULL REFERENCES tickets(id),
+  child_ticket_id TEXT NOT NULL REFERENCES tickets(id)
 );
 
 CREATE TABLE IF NOT EXISTS reports (
-  id STRING DEFAULT UUID_STRING() PRIMARY KEY,
-  ticket_id STRING NOT NULL REFERENCES tickets(id),
-  submitted_by_role STRING NOT NULL, -- 'contractor'
-  report_text STRING NOT NULL,
-  media_url STRING,
-  gptzero_score FLOAT, -- probability the text is AI-generated, per GPTZero
-  gptzero_flag STRING, -- 'human' | 'mixed' | 'ai' | 'unavailable'
-  owner_decision STRING, -- NULL | 'approved' | 'rejected'
-  decided_at TIMESTAMP_NTZ,
-  submitted_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+  id TEXT PRIMARY KEY,
+  ticket_id TEXT NOT NULL REFERENCES tickets(id),
+  submitted_by_role TEXT NOT NULL,
+  report_text TEXT NOT NULL,
+  media_url TEXT,
+  gptzero_score DOUBLE PRECISION,
+  gptzero_flag TEXT,
+  owner_decision TEXT,
+  decided_at TIMESTAMP,
+  submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- One row per uploaded clip, whether attached to a contractor's report or
@@ -69,20 +65,20 @@ CREATE TABLE IF NOT EXISTS reports (
 -- yet tied to a report. ticket_id is likewise NULL until something (today:
 -- the report it's attached to) attributes the clip to a ticket.
 CREATE TABLE IF NOT EXISTS media (
-  id STRING DEFAULT UUID_STRING() PRIMARY KEY,
-  project_id STRING NOT NULL REFERENCES projects(id),
-  branch_id STRING NOT NULL REFERENCES branches(id),
-  ticket_id STRING REFERENCES tickets(id),
-  report_id STRING REFERENCES reports(id),
-  source STRING NOT NULL, -- 'report' | 'feed'
-  camera_id STRING,
-  captured_at TIMESTAMP_NTZ,
-  mime_type STRING NOT NULL,
-  byte_size NUMBER,
-  storage_path STRING NOT NULL,
-  analysis_status STRING NOT NULL DEFAULT 'pending', -- 'pending' | 'running' | 'done' | 'failed'
-  analysis_json STRING, -- JSON text, not VARIANT — see lib/postgres.ts toPgPlaceholders note
-  analysis_error STRING,
-  analyzed_at TIMESTAMP_NTZ,
-  created_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  branch_id TEXT NOT NULL REFERENCES branches(id),
+  ticket_id TEXT REFERENCES tickets(id),
+  report_id TEXT REFERENCES reports(id),
+  source TEXT NOT NULL, -- 'report' | 'feed'
+  camera_id TEXT,
+  captured_at TIMESTAMP,
+  mime_type TEXT NOT NULL,
+  byte_size BIGINT,
+  storage_path TEXT NOT NULL,
+  analysis_status TEXT NOT NULL DEFAULT 'pending', -- 'pending' | 'running' | 'done' | 'failed'
+  analysis_json TEXT, -- JSON text, not JSONB — see lib/db.ts's toPgPlaceholders note
+  analysis_error TEXT,
+  analyzed_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

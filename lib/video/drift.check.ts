@@ -15,6 +15,7 @@ function ticket(overrides: Partial<Ticket> & Pick<Ticket, "ID" | "TITLE" | "STAT
     DESCRIPTION: null,
     PLANNED_START: null,
     PLANNED_END: null,
+    ORIGINAL_PLANNED_END: null,
     ACTUAL_START: null,
     ACTUAL_END: null,
     UPDATED_AT: "2026-10-01T00:00:00.000Z",

@@ -41,8 +41,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# snowflake-sdk connection log
-snowflake.log
-
 # local media storage (see lib/media-store.ts) — not for S3/production use
 /.data/
+
+# uploaded progress-report PDFs (local-disk storage, see docs/plan.md)
+/public/uploads/*
+!/public/uploads/.gitkeep
