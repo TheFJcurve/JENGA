@@ -19,6 +19,14 @@ import { DENIED_STYLE, STATE_STYLE } from '@/lib/theme';
 import { edgeInFocus, focusNodeIds } from '@/lib/focus';
 import type { GraphEdge, Task } from '@/lib/types';
 
+/**
+ * The logical view opens at a zoom where a card's text reads (id, days, name,
+ * status), and you pan to the rest. Fitting all ~16 cards into the pane drew them
+ * at about a third of this, which is too small to read.
+ */
+const READABLE_ZOOM = 0.85;
+const VIEW_PAD = 24;
+
 /** Authoritative blueprint coordinate space. Task x/y are pixels in this space. */
 const BLUEPRINT_W = 1200;
 const BLUEPRINT_H = 800;
@@ -55,7 +63,7 @@ function Canvas() {
   const selectTask = useJenga((s) => s.selectTask);
   const clearFocus = useJenga((s) => s.clearFocus);
 
-  const { fitView } = useReactFlow();
+  const { fitView, setViewport } = useReactFlow();
   // Which nodes are on screen. Task ids only: a state change moves nothing and
   // must not reset the zoom. A different site remounts the flow (`key` below), so
   // its own fit-on-mount frames the new nodes once they are measured.
@@ -73,20 +81,56 @@ function Canvas() {
     focusRef.current = focusIds;
   }, [focusIds]);
 
+  const logicalPos = useMemo(
+    () => (mode === 'logical' ? layout(tasks, edgesRaw) : null),
+    [mode, tasks, edgesRaw],
+  );
+
+  // `fit` must keep one identity (a new one would cancel the animation queued by
+  // the effects below), so it reads the mode and layout through refs kept current here.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef({ mode, logicalPos });
+  useEffect(() => {
+    viewRef.current = { mode, logicalPos };
+  }, [mode, logicalPos]);
+
   // The one place the viewport is framed. Every refit (selection, resize, mode
-  // switch) goes through it, so a resize while something is focused keeps the
-  // focus instead of snapping back out to the whole graph.
+  // switch, deselect) goes through it, so a resize while something is focused
+  // keeps the focus, and "no focus" always means the same default view.
   const fit = useCallback(
     (duration: number) => {
       const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const opts = { duration: reduced ? 0 : duration };
       const ids = focusRef.current;
-      void fitView(
-        ids
-          ? { nodes: [...ids].map((id) => ({ id })), padding: 0.35, maxZoom: 1.2, duration: reduced ? 0 : duration }
-          : { padding: 0.1, duration: reduced ? 0 : duration },
-      );
+      if (ids) {
+        void fitView({ nodes: [...ids].map((id) => ({ id })), padding: 0.18, maxZoom: 1.2, ...opts });
+        return;
+      }
+      const { mode: m, logicalPos: pos } = viewRef.current;
+      const rect = wrapRef.current?.getBoundingClientRect();
+      const boxes = pos ? Object.values(pos) : [];
+      if (m === 'logical' && rect && boxes.length > 0) {
+        // Readable zoom, anchored on the start of the schedule: the first rank at
+        // the left edge, the graph centred vertically (or from the top when it is
+        // taller than the pane, so its first row is never cut off).
+        const minX = Math.min(...boxes.map((b) => b.x));
+        const minY = Math.min(...boxes.map((b) => b.y));
+        const maxY = Math.max(...boxes.map((b) => b.y + NODE_H));
+        const zoom = READABLE_ZOOM;
+        const tall = (maxY - minY) * zoom + 2 * VIEW_PAD > rect.height;
+        void setViewport(
+          {
+            x: VIEW_PAD - minX * zoom,
+            y: tall ? VIEW_PAD - minY * zoom : rect.height / 2 - ((minY + maxY) / 2) * zoom,
+            zoom,
+          },
+          opts,
+        );
+        return;
+      }
+      void fitView({ padding: 0.1, ...opts });
     },
-    [fitView],
+    [fitView, setViewport],
   );
 
   // `fitView` on <ReactFlow> fits once, on mount. Switching blueprint <-> logical
@@ -95,7 +139,6 @@ function Canvas() {
   // The pane is resizable (drag the dividers on the Site tab), and React Flow
   // does not reframe on its own when its box changes size. Refit once a resize
   // settles. The first observation is the mount itself, which `fitView` already handles.
-  const wrapRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -137,11 +180,6 @@ function Canvas() {
     return () => clearTimeout(timer);
   }, [focusKey, focusOrigin, selectedTaskId, fit]);
 
-  const logicalPos = useMemo(
-    () => (mode === 'logical' ? layout(tasks, edgesRaw) : null),
-    [mode, tasks, edgesRaw],
-  );
-
   const nodes: Node<TaskNodeData>[] = useMemo(
     () =>
       tasks.map((t) => ({
@@ -154,10 +192,11 @@ function Canvas() {
           task: t,
           selected: t.id === selectedTaskId || (!!selectedZone && t.zone === selectedZone),
           dimmed: !!focusIds && !focusIds.has(t.id),
+          variant: mode,
           thumbnail: null,
         },
       })),
-    [tasks, logicalPos, selectedTaskId, selectedZone, focusIds],
+    [tasks, logicalPos, selectedTaskId, selectedZone, focusIds, mode],
   );
 
   const edges: Edge[] = useMemo(() => {
@@ -192,7 +231,12 @@ function Canvas() {
       nodeTypes={nodeTypes}
       onNodeClick={(_, n) => selectTask(n.id, 'graph')}
       onPaneClick={() => clearFocus()}
-      fitView
+      // Blueprint fits the whole drawing on mount; logical opens at the readable
+      // zoom, set as soon as the flow initialises so there is no first-frame flash.
+      fitView={mode === 'blueprint'}
+      onInit={() => {
+        if (viewRef.current.mode === 'logical') fit(0);
+      }}
       minZoom={0.2}
       maxZoom={2}
       proOptions={{ hideAttribution: true }}

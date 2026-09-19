@@ -11,6 +11,11 @@ export interface TaskNodeData extends Record<string, unknown> {
   selected: boolean;
   /** Outside the current focus: drawn faint so the focused task and its neighbours read. */
   dimmed?: boolean;
+  /**
+   * Which view draws it. Logical is the readable one: exactly id, duration, name
+   * and status. Blueprint keeps the denser card (critical/float) it always had.
+   */
+  variant?: 'logical' | 'blueprint';
   thumbnail: string | null;
 }
 
@@ -19,7 +24,8 @@ export const NODE_W = 176;
 export const NODE_H = 64;
 
 function TaskNodeImpl({ data }: NodeProps) {
-  const { task, selected, dimmed, thumbnail } = data as unknown as TaskNodeData;
+  const { task, selected, dimmed, thumbnail, variant } = data as unknown as TaskNodeData;
+  const logical = variant === 'logical';
   const denied = useJenga((s) => isDenied(task, s.reports));
   const style = denied ? DENIED_STYLE : STATE_STYLE[task.state];
 
@@ -33,6 +39,9 @@ function TaskNodeImpl({ data }: NodeProps) {
         style.chip,
         selected ? 'ring-2 ring-slate-900/70' : '',
         task.is_critical ? 'shadow-[0_0_0_1px_rgba(220,38,38,0.55)]' : '',
+        // The logical card has no CRIT label, so a critical task is marked by a red
+        // ring (unless selected, whose ring wins).
+        logical && task.is_critical && !selected ? 'ring-1 ring-red-400' : '',
         task.state === 'under_review' || denied ? 'animate-pulse' : '',
       ].join(' ')}
     >
@@ -48,18 +57,33 @@ function TaskNodeImpl({ data }: NodeProps) {
           />
         ) : null}
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-1">
-            <span className="font-mono text-[10px] opacity-70">{task.id}</span>
-            {task.is_critical ? (
-              <span className="font-mono text-[9px] text-red-600">CRIT</span>
-            ) : (
-              <span className="font-mono text-[9px] opacity-50">
-                {task.total_float}d float
-              </span>
-            )}
-          </div>
-          <div className="truncate font-medium leading-tight">{task.name}</div>
-          <div className="truncate text-[9px] opacity-60">{style.label}</div>
+          {logical ? (
+            // The four things a card is for, sized to read at the default zoom.
+            // Critical is carried by the red border, so it needs no label here.
+            <>
+              <div className="flex items-baseline justify-between gap-1">
+                <span className="font-mono text-[11px] opacity-70">{task.id}</span>
+                <span className="font-mono text-[11px]">{task.duration_days}d</span>
+              </div>
+              <div className="truncate text-[12px] font-medium leading-tight">{task.name}</div>
+              <div className="truncate text-[10px] opacity-70">{style.label}</div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-baseline justify-between gap-1">
+                <span className="font-mono text-[10px] opacity-70">{task.id}</span>
+                {task.is_critical ? (
+                  <span className="font-mono text-[9px] text-red-600">CRIT</span>
+                ) : (
+                  <span className="font-mono text-[9px] opacity-50">
+                    {task.total_float}d float
+                  </span>
+                )}
+              </div>
+              <div className="truncate font-medium leading-tight">{task.name}</div>
+              <div className="truncate text-[9px] opacity-60">{style.label}</div>
+            </>
+          )}
         </div>
       </div>
 
