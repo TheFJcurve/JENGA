@@ -11,7 +11,7 @@ Zone = Literal[
     "track_bed", "south_platform", "north_platform", "mezzanine", "escalator_well"
 ]
 VerdictStatus = Literal["APPROVED", "DISPUTED", "UNDER_REVIEW"]
-POStatus = Literal["confirmed", "rescheduled", "draft", "escalated"]
+POStatus = Literal["confirmed", "rescheduled", "draft", "escalated", "received"]
 
 
 class Task(BaseModel):
@@ -212,7 +212,10 @@ class HotzoneResponse(BaseModel):
 
 
 class VerifyRequest(BaseModel):
-    report_text: str
+    #: None for voice-note submissions, which carry their claim in `transcript`.
+    #: Requiring a string here 422'd every voice verify and silently retired the
+    #: session to fixtures — the exact confident-wrong-answer JENGA argues against.
+    report_text: str | None = None
     image_base64: str | None = None
     transcript: str | None = None
 
@@ -229,6 +232,43 @@ class StateRequest(BaseModel):
 class ScenarioRequest(BaseModel):
     #: Anything else is a 422; the simulator has exactly these two regimes.
     mode: Literal["normal", "cold"]
+
+
+class POActionRequest(BaseModel):
+    """A procurement action a planner takes on a purchase order from the ledger."""
+
+    #: `expedite` pulls delivery in a day (live via Zip when keyed); `receive`
+    #: marks it delivered; `link` ties it to a ticket for attribution.
+    action: Literal["expedite", "receive", "link"]
+    #: Required for `link`; ignored otherwise.
+    task_id: str | None = None
+
+
+class AgentProcurementRequest(BaseModel):
+    """Work packages the user asked the procurement agent to buy for."""
+
+    packages: list[ProposedTask]
+    #: The document the packages were extracted from, quoted in the trace.
+    filename: str | None = None
+
+
+class AgentProcurementResponse(BaseModel):
+    """What the procurement agent did, trace included.
+
+    `live=True` means a real purchase order now exists on Zip staging under
+    `po_id`; False means the one fallback ran and the PO is on the local ledger
+    only. `steps` reuses the verification trace shape so the UI renders both
+    agents with one component vocabulary.
+    """
+
+    ok: bool
+    live: bool
+    po_id: str | None = None
+    po_number: str | None = None
+    vendor: str | None = None
+    detail: str
+    steps: list[VerdictStep] = []
+    purchase_order: PurchaseOrder | None = None
 
 
 class DisputeResponse(BaseModel):

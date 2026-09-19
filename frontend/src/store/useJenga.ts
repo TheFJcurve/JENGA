@@ -33,11 +33,33 @@ export type ViewMode = 'blueprint' | 'logical';
 /** Toronto-wide hotzone map, or one site's dependency graph. */
 export type SiteView = 'macro' | 'micro';
 
+/** Within a site: the work surface, or the procurement/ledger surface. */
+export type MicroTab = 'site' | 'procurement';
+
 /** One entry per state transition a task went through. Append-only. */
 export interface StageEvent {
   state: TaskState;
   at: number;
 }
+
+/** Which integration or agent produced an activity entry. Drives the icon. */
+export type AgentSource = 'browserbase' | 'tiger' | 'agent' | 'documents' | 'zip';
+
+/**
+ * One agentic operation, as the activity rail shows it. Entries are created
+ * `running` and resolved in place, so the rail reads as live confirmations of
+ * what the system actually did — not a decorative animation.
+ */
+export interface AgentEvent {
+  id: string;
+  ts: number;
+  source: AgentSource;
+  title: string;
+  detail?: string;
+  status: 'running' | 'ok' | 'warn' | 'error';
+}
+
+let _eventSeq = 0;
 
 /** Where every task sat on the schedule at load. Slip = distance from this. */
 export type Baseline = Record<string, { es: number; ef: number }>;
@@ -103,6 +125,8 @@ interface JengaState {
   /** Display name of that site, straight off the hotzone. Drives the header. */
   activeSiteName: string;
   view: SiteView;
+  /** Which micro surface is on screen: the work graph, or procurement. */
+  microTab: MicroTab;
 
   tasks: Task[];
   edges: GraphEdge[];
@@ -122,6 +146,15 @@ interface JengaState {
   attributions: AttributionEntry[];
   purchaseOrders: PurchaseOrder[];
   hotzones: HotzoneResponse | null;
+  /** True while an operator-triggered Browserbase scrape is running. */
+  scrapingHotzones: boolean;
+  /** Set when the last scrape press could not reach the backend at all. */
+  scrapeError: string | null;
+
+  /** Live log of agentic operations, newest first. Survives site switches. */
+  activity: AgentEvent[];
+  /** Whether the activity rail is open. */
+  activityOpen: boolean;
   sideEffect: string | null;
   /** Curing telemetry, keyed by ticket. Written by the poll in <SensorStrip>. */
   sensors: Record<string, SensorPayload>;
@@ -146,9 +179,12 @@ interface JengaState {
 
   load: (projectId?: string) => Promise<void>;
   loadSite: (hotzoneId: string) => Promise<void>;
+  /** Press-to-scrape: run Browserbase now and put the result on the map. */
+  scrapeHotzones: () => Promise<void>;
   loadSample: () => Promise<void>;
   reset: () => Promise<void>;
   setView: (v: SiteView) => void;
+  setMicroTab: (t: MicroTab) => void;
   setMode: (m: ViewMode) => void;
   setStrict: (v: boolean) => void;
   selectTask: (id: string | null) => void;
@@ -165,6 +201,27 @@ interface JengaState {
   submitUpdate: (taskId: string, text: string, imageBase64: string | null) => Promise<string | null>;
   decide: (reportId: string, decision: 'approve' | 'deny', note: string) => Promise<string | null>;
   runDispute: (taskId: string, delayDays: number, reason: string) => Promise<void>;
+  /** Procurement actions on a PO. Each hits the backend and mirrors the result. */
+  expeditePO: (poId: string) => Promise<void>;
+  markPoReceived: (poId: string) => Promise<void>;
+  linkPoToTask: (poId: string, taskId: string) => Promise<void>;
+  /**
+   * Hand extracted work packages to the procurement agent, which creates a real
+   * purchase order on Zip staging (or the local-ledger fallback). Logs the run
+   * in the activity rail and mirrors the new PO into the ledger. Returns the
+   * full result so the caller can render the agent's trace, or null if the
+   * request never landed.
+   */
+  agentProcure: (
+    packages: api.ProposedTask[],
+    filename: string,
+  ) => Promise<api.AgentProcurementResult | null>;
+
+  /** Append an activity entry; returns its id so the caller can resolve it. */
+  logActivity: (e: Omit<AgentEvent, 'id' | 'ts'>) => string;
+  /** Resolve or amend an activity entry in place. */
+  updateActivity: (id: string, patch: Partial<Omit<AgentEvent, 'id' | 'ts'>>) => void;
+  setActivityOpen: (open: boolean) => void;
 }
 
 /**
@@ -179,6 +236,7 @@ interface JengaState {
  * site's.
  */
 const EMPTY_SITE = {
+  microTab: 'site' as MicroTab,
   tasks: [],
   edges: [],
   criticalPath: [],
@@ -208,6 +266,11 @@ export const useJenga = create<JengaState>((set, get) => ({
   strict: true,
 
   hotzones: null,
+  scrapingHotzones: false,
+  scrapeError: null,
+
+  activity: [],
+  activityOpen: false,
 
   role: 'owner',
   ownerId: 'halton-transit',
@@ -247,6 +310,50 @@ export const useJenga = create<JengaState>((set, get) => ({
       loading: false,
       offline: api.isOffline(),
     });
+  },
+
+  /**
+   * The scrape is a discrete user action with a visible outcome: the button
+   * spins while Browserbase runs, and the result — live zones or the seed with
+   * an honest note about why — replaces the panel when it lands. A null return
+   * (backend down) keeps the old data on screen; nothing is faked.
+   */
+  async scrapeHotzones() {
+    set({ scrapingHotzones: true, scrapeError: null });
+    const ev = get().logActivity({
+      source: 'browserbase',
+      status: 'running',
+      title: 'Scraping municipal construction feeds',
+      detail: 'toronto.ca road restrictions · metrolinx.com Eglinton Crosstown West',
+    });
+    const result = await api.scrapeHotzones();
+    set((s) => ({
+      scrapingHotzones: false,
+      hotzones: result ?? s.hotzones,
+      // A null result means the request never completed — backend down or
+      // timed out — which is a different fact from "ran and fell back to the
+      // seed", and the panel must not report one as the other.
+      scrapeError: result
+        ? null
+        : 'Scrape did not reach the backend — is it running on :8000?',
+      offline: api.isOffline(),
+    }));
+    get().updateActivity(
+      ev,
+      !result
+        ? { status: 'error', title: 'Scrape did not reach the backend' }
+        : result.source === 'browserbase'
+          ? {
+              status: 'ok',
+              title: `Live scrape complete — ${result.hotzones.length} zones`,
+              detail: result.notes,
+            }
+          : {
+              status: 'warn',
+              title: 'Scrape ran, fell back to seeded zones',
+              detail: result.notes,
+            },
+    );
   },
 
   /**
@@ -305,7 +412,25 @@ export const useJenga = create<JengaState>((set, get) => ({
     await get().load();
   },
 
+  logActivity(e) {
+    const id = `EV-${++_eventSeq}`;
+    set((s) => ({
+      // Newest first, capped so a long demo session cannot grow unbounded.
+      activity: [{ ...e, id, ts: Date.now() }, ...s.activity].slice(0, 40),
+    }));
+    return id;
+  },
+
+  updateActivity(id, patch) {
+    set((s) => ({
+      activity: s.activity.map((ev) => (ev.id === id ? { ...ev, ...patch } : ev)),
+    }));
+  },
+
+  setActivityOpen: (activityOpen) => set({ activityOpen }),
+
   setView: (view) => set({ view }),
+  setMicroTab: (microTab) => set({ microTab }),
   setMode: (mode) => set({ mode }),
   setStrict: (strict) => set({ strict }),
   selectTask: (selectedTaskId) => set({ selectedTaskId }),
@@ -399,12 +524,25 @@ export const useJenga = create<JengaState>((set, get) => ({
     const site = get().activeProjectId;
     if (!site) return 'No project selected.';
     set({ busy: true });
+    const ev = get().logActivity({
+      source: 'agent',
+      status: 'running',
+      title: `Verifying ${taskId} — 5-node pipeline`,
+      detail: 'GPTZero authorship → vision → historical memory → telemetry → arbiter',
+    });
     try {
       await api.submitReport(site, taskId, text, imageBase64, get().tasks, get().strict);
     } catch (err) {
       set({ busy: false });
-      return err instanceof Error ? err.message : 'Submission failed.';
+      const message = err instanceof Error ? err.message : 'Submission failed.';
+      get().updateActivity(ev, { status: 'error', title: `Update on ${taskId} refused`, detail: message });
+      return message;
     }
+    get().updateActivity(ev, {
+      status: 'ok',
+      title: `Update on ${taskId} sent for owner review`,
+      detail: 'The AI recommendation is attached for the owner to weigh.',
+    });
     set({ busy: false, offline: api.isOffline() });
     if (get().activeProjectId === site) await refreshSite(site);
     const { role, ownerId, companyId } = get();
@@ -438,7 +576,18 @@ export const useJenga = create<JengaState>((set, get) => ({
   async runDispute(taskId, delayDays, reason) {
     const site = get().activeProjectId;
     set({ busy: true, cascading: true });
+    const ev = get().logActivity({
+      source: 'agent',
+      status: 'running',
+      title: `Propagating +${delayDays}d slip from ${taskId}`,
+      detail: 'Recomputing CPM float and cascading downstream…',
+    });
     const res = await api.dispute(taskId, delayDays, reason, get().tasks);
+    get().updateActivity(ev, {
+      status: 'ok',
+      title: `Slip recorded — ${res.attribution.downstream_affected.length} downstream tasks moved`,
+      detail: `Project slipped +${res.project_slipped_days}d · attribution written to the ledger.`,
+    });
     if (get().activeProjectId !== site) return; // see `submit`
 
     // The cascade is the demo's money shot: rather than swapping the whole graph
@@ -496,5 +645,101 @@ export const useJenga = create<JengaState>((set, get) => ({
     });
 
     if (ranks.length === 0) set({ busy: false, cascading: false });
+  },
+
+  /**
+   * Procurement actions. Each posts to the backend and writes the returned PO
+   * back into the ledger; a null return (backend down / rejected) leaves the PO
+   * as-is rather than faking success, matching `actOnPurchaseOrder`'s contract.
+   */
+  async expeditePO(poId) {
+    const site = get().activeProjectId;
+    const ev = get().logActivity({
+      source: 'zip',
+      status: 'running',
+      title: `Expediting ${poId} via Zip`,
+    });
+    const updated = await api.actOnPurchaseOrder(poId, 'expedite');
+    get().updateActivity(
+      ev,
+      updated
+        ? {
+            status: 'ok',
+            title: `${poId} expedited → ${updated.delivery_date}`,
+            detail: updated.last_action ?? undefined,
+          }
+        : { status: 'error', title: `Expedite of ${poId} did not land` },
+    );
+    if (!updated || get().activeProjectId !== site) return;
+    set((s) => ({
+      purchaseOrders: s.purchaseOrders.map((po) => (po.id === poId ? updated : po)),
+    }));
+  },
+
+  async markPoReceived(poId) {
+    const site = get().activeProjectId;
+    const updated = await api.actOnPurchaseOrder(poId, 'receive');
+    get().logActivity(
+      updated
+        ? { source: 'zip', status: 'ok', title: `${poId} marked received on site` }
+        : { source: 'zip', status: 'error', title: `Receive of ${poId} did not land` },
+    );
+    if (!updated || get().activeProjectId !== site) return;
+    set((s) => ({
+      purchaseOrders: s.purchaseOrders.map((po) => (po.id === poId ? updated : po)),
+    }));
+  },
+
+  async agentProcure(packages, filename) {
+    const site = get().activeProjectId;
+    const ev = get().logActivity({
+      source: 'zip',
+      status: 'running',
+      title: `Agent creating procurement from ${filename}`,
+      detail: `Planning materials for ${packages.length} work package${packages.length === 1 ? '' : 's'} → vendor → Zip purchase order…`,
+    });
+    const result = await api.createProcurementViaAgent(packages, filename);
+    get().updateActivity(
+      ev,
+      !result
+        ? {
+            status: 'error',
+            title: 'Procurement agent did not reach the backend',
+            detail: 'Is the backend running on :8000?',
+          }
+        : result.live
+          ? {
+              status: 'ok',
+              title: `Zip PO ${result.po_number ?? result.po_id} created on staging`,
+              detail: result.detail,
+            }
+          : {
+              status: 'warn',
+              title: `PO ${result.po_number} drafted on the local ledger`,
+              detail: result.detail,
+            },
+    );
+    if (!result) return null;
+    // Mirror the new PO into the Procurement tab, unless the user has switched
+    // sites while the agent ran — the PO belongs to the site it was raised from.
+    if (result.purchase_order && get().activeProjectId === site) {
+      const po = result.purchase_order;
+      set((s) => ({ purchaseOrders: [po, ...s.purchaseOrders] }));
+    }
+    return result;
+  },
+
+  async linkPoToTask(poId, taskId) {
+    const site = get().activeProjectId;
+    const updated = await api.actOnPurchaseOrder(poId, 'link', taskId);
+    get().logActivity(
+      updated
+        ? { source: 'zip', status: 'ok', title: `${poId} linked to ${taskId}` }
+        : { source: 'zip', status: 'error', title: `Link of ${poId} did not land` },
+    );
+    if (!updated || get().activeProjectId !== site) return;
+    set((s) => ({
+      purchaseOrders: s.purchaseOrders.map((po) => (po.id === poId ? updated : po)),
+    }));
   },
 }));

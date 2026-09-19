@@ -3,7 +3,7 @@
 import json
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -14,11 +14,14 @@ import cpm_engine
 import db
 import documents
 import impact as impact_module
+import procurement_agent
 import seed as seed_module
 import sensors
 from integrations import tiger, zip_api
 from integrations.gptzero import FLAG_THRESHOLD
 from schemas import (
+    AgentProcurementRequest,
+    AgentProcurementResponse,
     AttributionEntry,
     DecisionRequest,
     DecisionResponse,
@@ -28,6 +31,7 @@ from schemas import (
     GraphResponse,
     HotzoneResponse,
     ParsedDocument,
+    POActionRequest,
     PortalOverview,
     PurchaseOrder,
     QueueItem,
@@ -197,6 +201,17 @@ async def get_graph(project_id: str = db.DEFAULT_PROJECT_ID):
 @app.get("/api/hotzones", response_model=HotzoneResponse)
 async def get_hotzones():
     return await browserbase_hotzones.hotzones()
+
+
+@app.post("/api/hotzones/scrape", response_model=HotzoneResponse)
+async def scrape_hotzones():
+    """Operator-triggered Browserbase scrape — the only path that ever scrapes.
+
+    Page loads read the last result (or the seed); this endpoint exists so the
+    scrape is an explicit button press with visible progress, not a side effect.
+    Without a Browserbase key it returns the seed with a note saying so.
+    """
+    return await browserbase_hotzones.hotzones(force_live=True)
 
 
 @app.get("/api/sensors/{ticket_id}", response_model=SensorPayload)
@@ -437,6 +452,75 @@ async def get_attributions():
 @app.get("/api/purchase-orders", response_model=list[PurchaseOrder])
 async def get_purchase_orders():
     return await db.purchase_orders()
+
+
+@app.post("/api/purchase-orders/{po_id}/action", response_model=PurchaseOrder)
+async def act_on_purchase_order(po_id: str, body: POActionRequest):
+    """A planner acts on a PO from the ledger: expedite, receive, or link to a task.
+
+    `expedite` raises a live Zip request when a key is set (and falls back to the
+    local mirror otherwise); `receive` marks it delivered; `link` ties it to a
+    ticket so a later slip can be attributed to the material. Every path writes
+    through `db.update_po`, so the ledger reflects the action whether or not Zip
+    is live.
+    """
+    po = await _po(po_id)
+    if not po:
+        raise HTTPException(404, f"unknown purchase order {po_id}")
+
+    if body.action == "expedite":
+        # One day earlier than the current promise — the same beat verify runs
+        # on a detected shortage, but here triggered explicitly by a planner.
+        try:
+            base = datetime.fromisoformat(str(po["delivery_date"])).date()
+        except (TypeError, ValueError):
+            base = datetime.now(timezone.utc).date()
+        new_date = (base - timedelta(days=1)).isoformat()
+        reason = "Expedited by planner from the procurement ledger."
+        zip_result = await zip_api.expedite_purchase_order(po_id, new_date, reason)
+        note = f"{reason} · via Zip API" if zip_result.get("live") else reason
+        updated = await db.update_po(
+            po_id, status="rescheduled", delivery_date=new_date, last_action=note
+        )
+    elif body.action == "receive":
+        updated = await db.update_po(
+            po_id, status="received", last_action="Marked received on site."
+        )
+    else:  # link
+        if not body.task_id:
+            raise HTTPException(422, "link requires a task_id")
+        if body.task_id not in await _graph():
+            raise HTTPException(404, f"unknown task {body.task_id}")
+        updated = await db.update_po(
+            po_id,
+            linked_task=body.task_id,
+            last_action=f"Linked to {body.task_id}.",
+        )
+
+    if updated is None:
+        raise HTTPException(404, f"unknown purchase order {po_id}")
+    return updated
+
+
+@app.post("/api/procurement/agent-create", response_model=AgentProcurementResponse)
+async def agent_create_procurement(body: AgentProcurementRequest):
+    """The procurement agent, triggered by a user on extracted work packages.
+
+    Plans a bill of materials, picks a vendor, and creates a real purchase
+    order on Zip staging (the same operations ziphq-mcp's write tools expose);
+    without a key — or if staging refuses — the one fallback records the PO on
+    the local ledger instead. Either way the created PO is mirrored into the
+    ledger so the Procurement tab shows it immediately, and the full step
+    trace is returned so the UI can show the agent's reasoning.
+    """
+    if not body.packages:
+        raise HTTPException(422, "at least one work package is required")
+    result = await procurement_agent.run(
+        [p.model_dump() for p in body.packages], body.filename
+    )
+    if result.get("purchase_order"):
+        await db.add_purchase_order(result["purchase_order"])
+    return result
 
 
 @app.get("/api/zip/status")
