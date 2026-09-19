@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { AlertTriangle } from 'lucide-react';
 import { STATE_STYLE } from '@/lib/theme';
 import { useJenga, type StageEvent } from '@/store/useJenga';
@@ -27,6 +27,10 @@ export function Timeline() {
   const selectedTaskId = useJenga((s) => s.selectedTaskId);
   const selectTask = useJenga((s) => s.selectTask);
   const cascading = useJenga((s) => s.cascading);
+  // Delay attribution, merged in from the old standalone AttributionLedger —
+  // scoped to whichever task is selected rather than shown as an always-on,
+  // unfiltered append-only list.
+  const attributions = useJenga((s) => s.attributions);
 
   /**
    * Derive the axis from the data rather than trusting projectDuration alone:
@@ -57,6 +61,11 @@ export function Timeline() {
   const pct = (day: number) => (day / span) * 100;
   const slip = baselineDuration === null ? 0 : projectDuration - baselineDuration;
   const slipped = slip > 0;
+
+  const selectedAttributions = useMemo(
+    () => (selectedTaskId ? attributions.filter((a) => a.task_id === selectedTaskId) : []),
+    [attributions, selectedTaskId],
+  );
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-white text-slate-700">
@@ -168,6 +177,61 @@ export function Timeline() {
               ))}
             </div>
           </div>
+
+          {selectedAttributions.length > 0 && (
+            // Capped rather than left to grow unbounded — same reasoning as
+            // VerdictPanel's own max-h-[52%]: without a cap, a task with
+            // several attribution entries could squeeze the row list above
+            // toward zero height on a short viewport, since rows only get
+            // flex-1 of whatever this shrink-0 sibling leaves behind.
+            <div className="flex max-h-[45%] shrink-0 flex-col gap-2 overflow-y-auto border-t border-slate-200 bg-slate-50 p-2.5">
+              <AnimatePresence initial={false}>
+                {selectedAttributions.map((a) => (
+                  <motion.div
+                    key={a.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="rounded-lg border border-slate-200 bg-white p-2.5"
+                  >
+                    <div className="flex items-baseline justify-between">
+                      <span className="font-mono text-xs text-slate-700">
+                        {a.task_id} · +{a.slip_days}d slip
+                      </span>
+                    </div>
+
+                    <div className="mt-1.5 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-400">
+                      <span>Float consumed</span>
+                      <span className="text-right text-slate-700">{a.float_consumed}d</span>
+                      <span>Downstream</span>
+                      <span className="text-right text-slate-700">
+                        {a.downstream_affected.length} tasks
+                      </span>
+                      <span>Project slip</span>
+                      <span className="text-right text-red-600">+{a.project_slipped_days}d</span>
+                    </div>
+
+                    <div className="mt-2 border-t border-slate-200 pt-1.5">
+                      {a.attribution.map((p, i) => (
+                        <div key={i} className="mb-1 text-[10px] leading-snug">
+                          <div className="flex justify-between gap-2">
+                            <span className="text-slate-700">{p.party}</span>
+                            <span className="shrink-0 font-mono text-slate-400">{p.days}d</span>
+                          </div>
+                          <p className="text-slate-500">{p.reason}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {a.downstream_affected.length > 0 && (
+                      <p className="mt-1 font-mono text-[9px] text-slate-400">
+                        {a.downstream_affected.join(' · ')}
+                      </p>
+                    )}
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
 
           <footer className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-200 px-3 py-1.5 text-[9px] text-slate-400">
             <Swatch className="bg-slate-400">current</Swatch>

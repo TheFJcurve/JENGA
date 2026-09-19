@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { WorkGraph } from '@/components/WorkGraph';
 import { Timeline } from '@/components/Timeline';
 import { VerdictPanel, AgentRunning } from '@/components/VerdictPanel';
-import { AttributionLedger } from '@/components/AttributionLedger';
+import { ProcurementPanel } from '@/components/ProcurementPanel';
 import { SubmitUpdateModal } from '@/components/SubmitUpdateModal';
 import { MacroHeatmap } from '@/components/MacroHeatmap';
 import { SensorStrip } from '@/components/SensorStrip';
@@ -123,43 +123,50 @@ export default function Home() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <div className="relative min-w-0 flex-1">
-          {loading ? (
-            <div className="flex h-full items-center justify-center text-xs text-slate-400">
-              loading graph…
-            </div>
-          ) : view === 'macro' ? (
-            <MacroHeatmap onOpenSite={(hotzone) => void loadSite(hotzone.id)} />
-          ) : !hasGraph ? (
-            <OnboardSite />
-          ) : (
-            <div className="flex h-full min-h-0 flex-col">
-              <div className="relative min-h-0 flex-[2]">
+        {loading ? (
+          <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">
+            loading graph…
+          </div>
+        ) : view === 'macro' ? (
+          <MacroHeatmap onOpenSite={(hotzone) => void loadSite(hotzone.id)} />
+        ) : !hasGraph ? (
+          <OnboardSite />
+        ) : (
+          <div className="flex h-full min-h-0 w-full flex-col">
+            {/* Top half: DAG (blueprint/logical) 60%, 3D twin + procurement 40%. */}
+            <div className="flex min-h-0 flex-1">
+              <div className="relative min-w-0 flex-[3]">
                 <WorkGraph />
                 <AgentRunning />
                 <VerdictPanel />
               </div>
-              {/* Under the DAG, above the schedule. Renders nothing until a
-                  non-pending ticket is selected. */}
+
+              {/* Follows the body, not the site — see hasGraph/onboarded note
+                  above; gating this on the site would leave a digital twin
+                  flanking a panel that says the site has no drawings. */}
+              {show3d && (
+                <div className="flex min-w-0 flex-[2] flex-col border-l border-slate-200">
+                  <div className="relative min-h-0 flex-1">
+                    <StationView />
+                  </div>
+                  <ProcurementPanel />
+                </div>
+              )}
+            </div>
+
+            {/* Bottom half: schedule, full width. The delay attribution
+                ledger used to flank this in its own rail; its function now
+                lives inside Timeline itself, scoped to the selected task. */}
+            <div className="flex min-h-0 flex-1 flex-col border-t border-slate-200">
+              {/* Above the schedule. Renders nothing until a non-pending
+                  ticket is selected. */}
               <SensorStrip />
-              <div className="min-h-[210px] flex-1 border-t border-slate-200">
+              <div className="min-h-0 flex-1">
                 <Timeline />
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Both rails follow the body, not the site. If a project ever comes
-            back with no tickets, `onboarded` and `hasGraph` disagree, and
-            gating these on the site would leave a digital twin and a delay
-            ledger flanking a panel that says the site has no drawings. */}
-        {view === 'micro' && hasGraph && show3d && (
-          <div className="h-full w-[360px] shrink-0 border-l border-slate-200">
-            <StationView />
           </div>
         )}
-
-        {view === 'micro' && hasGraph && <AttributionLedger />}
       </div>
     </main>
   );
