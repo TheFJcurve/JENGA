@@ -12,7 +12,6 @@ import { ContractorPortal } from '@/components/ContractorPortal';
 import { RoleSwitcher } from '@/components/RoleSwitcher';
 import { ActivityRail, ActivityToggle } from '@/components/ActivityRail';
 import { MacroHeatmap } from '@/components/MacroHeatmap';
-import { SensorStrip } from '@/components/SensorStrip';
 import { DocumentUpload } from '@/components/DocumentUpload';
 import { useJenga } from '@/store/useJenga';
 
@@ -202,9 +201,6 @@ function SiteTab() {
         </div>
         <VerifyRail />
       </div>
-
-      {/* Renders nothing until a non-pending ticket is selected. */}
-      <SensorStrip />
 
       {/* Schedule spans the full width along the bottom. */}
       <div className="min-h-[210px] flex-1 border-t border-slate-200">

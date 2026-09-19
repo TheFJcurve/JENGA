@@ -156,7 +156,7 @@ interface JengaState {
   /** Whether the activity rail is open. */
   activityOpen: boolean;
   sideEffect: string | null;
-  /** Curing telemetry, keyed by ticket. Written by the poll in <SensorStrip>. */
+  /** Curing telemetry, keyed by ticket. Nothing polls it since SensorStrip was removed. */
   sensors: Record<string, SensorPayload>;
 
   /**
