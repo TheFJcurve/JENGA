@@ -128,6 +128,26 @@ export const ZONE_LABEL: Record<Zone, string> = {
 };
 
 /**
+ * The 5 zone values are fixed (`CONTRACT.md`) and every project's geometry
+ * (`ZONE_BOXES`, the blueprint) is identical — only what a zone is called
+ * changes per project, so a tunnel job doesn't show its bore as "Track Bed".
+ * A project with no entry here (Eglinton, Finch) uses `ZONE_LABEL` as-is.
+ */
+const ZONE_LABEL_BY_PROJECT: Record<string, Record<Zone, string>> = {
+  'ossington-relief-tunnel': {
+    track_bed: 'Bore Drive',
+    south_platform: 'Launch Shaft',
+    north_platform: 'Retrieval Shaft',
+    mezzanine: 'Headworks',
+    escalator_well: 'Drop Shaft',
+  },
+};
+
+export function zoneLabel(zone: Zone, projectId?: string | null): string {
+  return (projectId && ZONE_LABEL_BY_PROJECT[projectId]?.[zone]) || ZONE_LABEL[zone];
+}
+
+/**
  * Box geometry for the 3D station. Five boxes, roughly arranged like a station
  * section: track at the bottom, platforms either side, mezzanine above, and the
  * escalator well cutting between them.

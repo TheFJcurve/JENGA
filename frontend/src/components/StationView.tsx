@@ -8,8 +8,8 @@ import {
   DENIED_STYLE,
   STATE_STYLE,
   ZONE_BOXES,
-  ZONE_LABEL,
   deniedTaskIds,
+  zoneLabel,
   zoneProgress,
   zoneVisual,
 } from '@/lib/theme';
@@ -55,6 +55,7 @@ function ZoneMesh({
   const state = zoneVisual(tasks, denied);
   const style = state === 'denied' ? DENIED_STYLE : STATE_STYLE[state];
   const progress = zoneProgress(tasks);
+  const projectId = useJenga((s) => s.activeProjectId);
   const ref = useRef<Mesh>(null);
 
   // under_review pulses, matching the amber pulse on the 2D node, and a denial
@@ -108,7 +109,7 @@ function ZoneMesh({
           outlineWidth={0.02}
           outlineColor="#ffffff"
         >
-          {progress ? `${ZONE_LABEL[zone]} · ${progress}` : ZONE_LABEL[zone]}
+          {progress ? `${zoneLabel(zone, projectId)} · ${progress}` : zoneLabel(zone, projectId)}
         </Text>
       </Billboard>
     </group>

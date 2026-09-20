@@ -4,7 +4,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { useJenga } from '@/store/useJenga';
 import { displayId } from '@/lib/format';
-import { DENIED_STYLE, STATE_STYLE, ZONE_LABEL, isDenied } from '@/lib/theme';
+import { DENIED_STYLE, STATE_STYLE, isDenied, zoneLabel } from '@/lib/theme';
 import type { Task } from '@/lib/types';
 
 /**
@@ -18,6 +18,7 @@ export function TaskDetail({ taskId, onClose }: { taskId: string | null; onClose
   const edges = useJenga((s) => s.edges);
   const reports = useJenga((s) => s.reports);
   const selectTask = useJenga((s) => s.selectTask);
+  const projectId = useJenga((s) => s.activeProjectId);
 
   useEffect(() => {
     if (taskId) ref.current?.showModal();
@@ -49,7 +50,7 @@ export function TaskDetail({ taskId, onClose }: { taskId: string | null; onClose
               <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-400">
                 <span>{displayId(task.id)}</span>
                 <span>·</span>
-                <span>{ZONE_LABEL[task.zone]}</span>
+                <span>{zoneLabel(task.zone, projectId)}</span>
               </div>
               <div className="mt-0.5 truncate text-sm font-semibold text-slate-900">{task.name}</div>
             </div>
