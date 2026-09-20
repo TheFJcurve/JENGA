@@ -244,27 +244,29 @@ function ReviewCard({ item }: { item: QueueItem }) {
 
         <div className={verdict ? 'mt-3' : ''}>
           <span className="text-[10px] uppercase tracking-wide text-slate-400">Attached documentation</span>
-          <div className="mt-1.5 flex flex-col gap-2">
+          <div className="mt-1.5 flex items-stretch gap-2">
             {report.media_url &&
               (isVideo ? (
                 <video
                   src={mediaUrl(report.media_url)}
                   controls
-                  className="h-40 w-full rounded border border-slate-200 bg-black object-contain"
+                  className="h-40 flex-1 rounded border border-slate-200 bg-black object-contain"
                 />
               ) : (
                 <img
                   src={mediaUrl(report.media_url)}
                   alt="Submitted evidence"
                   onClick={() => setDialogContent('photo')}
-                  className="h-40 w-full cursor-zoom-in rounded border border-slate-200 object-cover"
+                  className="h-40 flex-1 cursor-zoom-in rounded border border-slate-200 object-cover"
                 />
               ))}
 
             {/* The attached report — open the original document, or the full text. */}
             <button
               onClick={() => setDialogContent('report')}
-              className="flex w-full items-center gap-1.5 rounded border border-slate-200 p-2 text-left text-[11px] text-slate-600 hover:bg-slate-50"
+              className={`flex items-center gap-1.5 rounded border border-slate-200 p-2 text-left text-[11px] text-slate-600 hover:bg-slate-50 ${
+                report.media_url ? 'flex-1' : 'w-full'
+              }`}
             >
               <FileText size={12} className="shrink-0 text-slate-400" />
               <span className="truncate">{report.report_filename ?? 'Open report'}</span>
@@ -310,7 +312,7 @@ function ReviewCard({ item }: { item: QueueItem }) {
       <dialog
         ref={dialogRef}
         onClose={() => setDialogContent(null)}
-        className="fixed top-1/2 left-1/2 m-0 w-[min(90vw,760px)] -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-0 shadow-xl backdrop:bg-slate-900/50"
+        className="fixed top-1/2 left-1/2 m-0 w-[min(90vw,760px)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-0 shadow-xl backdrop:bg-slate-900/50"
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
           <span className="truncate text-xs font-medium text-slate-700">
