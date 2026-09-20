@@ -44,8 +44,8 @@ export const STATE_STYLE: Record<TaskState, StateStyle> = {
   },
   verified: {
     label: 'Verified',
-    chip: 'border-slate-300 bg-white text-slate-700',
-    hex: '#64748b',
+    chip: 'border-emerald-300 bg-emerald-50 text-emerald-700',
+    hex: '#22c55e',
     wireframe: false,
     opacity: 1,
     pulse: false,
